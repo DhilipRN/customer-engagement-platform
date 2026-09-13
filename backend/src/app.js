@@ -1,7 +1,8 @@
 import cors from 'cors';
 import express from 'express';
+import { createBusinessesRouter } from './routes/businesses.js';
 
-export function createApp() {
+export function createApp({ businessService } = {}) {
   const app = express();
 
   app.use(cors());
@@ -10,6 +11,8 @@ export function createApp() {
   app.get('/health', (_request, response) => {
     response.status(200).json({ status: 'ok' });
   });
+
+  app.use('/businesses', createBusinessesRouter({ businessService }));
 
   app.use((error, _request, response, _next) => {
     if (error instanceof SyntaxError && 'body' in error) {
