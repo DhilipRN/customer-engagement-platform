@@ -2,8 +2,9 @@ import cors from 'cors';
 import express from 'express';
 import { createBusinessesRouter } from './routes/businesses.js';
 import { createCustomersRouter } from './routes/customers.js';
+import { createPurchasesRouter } from './routes/purchases.js';
 
-export function createApp({ businessService, customerService } = {}) {
+export function createApp({ businessService, customerService, purchaseService } = {}) {
   const app = express();
 
   app.use(cors());
@@ -15,6 +16,7 @@ export function createApp({ businessService, customerService } = {}) {
 
   app.use('/businesses', createBusinessesRouter({ businessService }));
   app.use('/customers', createCustomersRouter({ businessService, customerService }));
+  app.use('/purchases', createPurchasesRouter({ businessService, customerService, purchaseService }));
 
   app.use((error, _request, response, _next) => {
     if (error instanceof SyntaxError && 'body' in error) {
