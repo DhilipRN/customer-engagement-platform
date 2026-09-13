@@ -4,8 +4,9 @@ import { createBusinessesRouter } from './routes/businesses.js';
 import { createCustomersRouter } from './routes/customers.js';
 import { createPurchasesRouter } from './routes/purchases.js';
 import { createMessageTemplatesRouter } from './routes/messageTemplates.js';
+import { createCampaignsRouter } from './routes/campaigns.js';
 
-export function createApp({ businessService, customerService, purchaseService, messageTemplateService } = {}) {
+export function createApp({ businessService, customerService, purchaseService, messageTemplateService, campaignService } = {}) {
   const app = express();
 
   app.use(cors());
@@ -19,6 +20,7 @@ export function createApp({ businessService, customerService, purchaseService, m
   app.use('/customers', createCustomersRouter({ businessService, customerService }));
   app.use('/purchases', createPurchasesRouter({ businessService, customerService, purchaseService }));
   app.use('/message-templates', createMessageTemplatesRouter({ businessService, messageTemplateService }));
+  app.use('/campaigns', createCampaignsRouter({ businessService, messageTemplateService, campaignService }));
 
   app.use((error, _request, response, _next) => {
     if (error instanceof SyntaxError && 'body' in error) {

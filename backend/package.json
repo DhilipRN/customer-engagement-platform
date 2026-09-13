@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node test/health.test.js && node test/supabase-config.test.js && node test/businesses.test.js && node test/customers.test.js && node test/purchases.test.js && node test/messageTemplates.test.js",
+    "test": "node test/health.test.js && node test/supabase-config.test.js && node test/businesses.test.js && node test/customers.test.js && node test/purchases.test.js && node test/messageTemplates.test.js && node test/campaigns.test.js",
     "db:check": "node src/scripts/check-supabase.js"
   },
   "dependencies": {
