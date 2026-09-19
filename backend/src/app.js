@@ -15,6 +15,7 @@ import { createReviewAutomationsRouter } from './routes/reviewAutomations.js';
   messageTemplateService,
   campaignService,
   messageService,
+  reviewAutomationService,
 } = {}) {
   const app = express();
 
@@ -38,6 +39,7 @@ app.use(
   createReviewAutomationsRouter({
     businessService,
     messageTemplateService,
+    reviewAutomationService,
   })
 );
 
