@@ -1,3 +1,4 @@
+
 import cors from 'cors';
 import express from 'express';
 import { createBusinessesRouter } from './routes/businesses.js';
@@ -8,7 +9,7 @@ import { createCampaignsRouter } from './routes/campaigns.js';
 import { createMessagesRouter } from './routes/messages.js';
 import { createReviewAutomationsRouter } from './routes/reviewAutomations.js';
 
-  export function createApp({
+export function createApp({
   businessService,
   customerService,
   purchaseService,
@@ -27,21 +28,57 @@ import { createReviewAutomationsRouter } from './routes/reviewAutomations.js';
   });
 
   app.use('/businesses', createBusinessesRouter({ businessService }));
-  app.use('/customers', createCustomersRouter({ businessService, customerService }));
 
-  app.use('/purchases', createPurchasesRouter({ businessService, customerService, purchaseService }));
-  app.use('/message-templates', createMessageTemplatesRouter({ businessService, messageTemplateService }));
-  app.use('/campaigns', createCampaignsRouter({ businessService, messageTemplateService, campaignService }));
-  app.use('/messages', createMessagesRouter({ businessService, customerService, messageTemplateService, campaignService, messageService }));
+  app.use(
+    '/customers',
+    createCustomersRouter({ businessService, customerService })
+  );
 
-app.use(
-  '/review-automations',
-  createReviewAutomationsRouter({
-    businessService,
-    messageTemplateService,
-    reviewAutomationService,
-  })
-);
+  app.use(
+    '/purchases',
+    createPurchasesRouter({
+      businessService,
+      customerService,
+      purchaseService,
+      reviewAutomationService,
+      messageTemplateService,
+      messageService,
+    })
+  );
+
+  app.use(
+    '/message-templates',
+    createMessageTemplatesRouter({ businessService, messageTemplateService })
+  );
+
+  app.use(
+    '/campaigns',
+    createCampaignsRouter({
+      businessService,
+      messageTemplateService,
+      campaignService,
+    })
+  );
+
+  app.use(
+    '/messages',
+    createMessagesRouter({
+      businessService,
+      customerService,
+      messageTemplateService,
+      campaignService,
+      messageService,
+    })
+  );
+
+  app.use(
+    '/review-automations',
+    createReviewAutomationsRouter({
+      businessService,
+      messageTemplateService,
+      reviewAutomationService,
+    })
+  );
 
   app.use((error, _request, response, _next) => {
     if (error instanceof SyntaxError && 'body' in error) {

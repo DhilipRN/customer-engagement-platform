@@ -1,3 +1,4 @@
+
 import { getSupabaseClient } from '../config/supabase.js';
 
 export function createCustomerService(supabaseClient = getSupabaseClient()) {
