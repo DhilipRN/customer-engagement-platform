@@ -44,6 +44,13 @@ function validateCustomer(payload, { creating = false } = {}) {
       errors.push('phone is required.');
     }
 
+    if (
+  values.phone !== undefined &&
+  !/^\d{10}$/.test(values.phone)
+) {
+  errors.push('phone must contain exactly 10 digits.');
+}
+
     if (values.consent_given === undefined) {
       errors.push('consent_given must be explicitly provided.');
     }
