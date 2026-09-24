@@ -7,6 +7,8 @@ export function getSupabaseClient() {
   if (!client) {
     const { url, serviceRoleKey } = getSupabaseConfig();
 
+    console.log('Using Supabase secret key:', serviceRoleKey.startsWith('sb_secret_'));
+
     client = createClient(url, serviceRoleKey, {
       auth: {
         autoRefreshToken: false,

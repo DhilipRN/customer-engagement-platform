@@ -18,13 +18,25 @@ export function createBusinessService(supabaseClient = getSupabaseClient()) {
     },
 
     async update(id, values) {
-      return supabaseClient
-        .from('businesses')
-        .update(values)
-        .eq('id', id)
-        .select('*')
-        .maybeSingle();
-    },
+  const result = await supabaseClient
+    .from('businesses')
+    .update(values)
+    .eq('id', id)
+    .select('*')
+    .maybeSingle();
+
+  if (!result.data && !result.error) {
+    const check = await supabaseClient
+      .from('businesses')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+  
+  }
+
+  return result;
+},
 
     async remove(id) {
       return supabaseClient.from('businesses').delete().eq('id', id).select('id').maybeSingle();

@@ -105,7 +105,7 @@ test('Customer API validates consent and existing businesses before creation', a
       body: JSON.stringify({
         business_id: MISSING_BUSINESS_ID,
         name: 'Grace Hopper',
-        phone: '+15550101',
+        phone: '9876543210',
         consent_given: true,
       }),
     });
@@ -117,7 +117,7 @@ test('Customer API validates consent and existing businesses before creation', a
       body: JSON.stringify({
         business_id: BUSINESS_ID,
         name: '  Grace Hopper  ',
-        phone: '+15550101',
+        phone: '9876543210',
         email: 'grace@example.com',
         consent_given: false,
       }),
