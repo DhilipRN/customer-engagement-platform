@@ -12,8 +12,124 @@ function validate(body,{creating=false}={}) { const errors=[],v={}; for(const fi
 export function createMessagesRouter({messageService,businessService,customerService,campaignService,messageTemplateService}={}){
  const r=Router();let ms=messageService,bs=businessService,cs=customerService,ca=campaignService,ts=messageTemplateService;const M=()=>ms??=createMessageService(),B=()=>bs??=createBusinessService(),C=()=>cs??=createCustomerService(),A=()=>ca??=createCampaignService(),T=()=>ts??=createMessageTemplateService();
  async function parents(v,res){const b=await B().findById(v.business_id);if(b.error)return db(res,b.error),false;if(!b.data)return res.status(404).json({error:'Business not found.'}),false;const c=await C().findById(v.customer_id);if(c.error)return db(res,c.error),false;if(!c.data)return res.status(404).json({error:'Customer not found.'}),false;if(c.data.business_id!==v.business_id)return res.status(400).json({error:'customer_id does not belong to business_id.'}),false;let campaign; if(v.campaign_id){campaign=await A().findById(v.campaign_id);if(campaign.error)return db(res,campaign.error),false;if(!campaign.data)return res.status(404).json({error:'Campaign not found.'}),false;if(campaign.data.business_id!==v.business_id)return res.status(400).json({error:'campaign_id does not belong to business_id.'}),false;if(!v.template_id)v.template_id=campaign.data.template_id;}if(v.template_id){const t=await T().findById(v.template_id);if(t.error)return db(res,t.error),false;if(!t.data)return res.status(404).json({error:'Message template not found.'}),false;if(t.data.business_id!==v.business_id)return res.status(400).json({error:'template_id does not belong to business_id.'}),false;if(campaign&&campaign.data.template_id!==v.template_id)return res.status(400).json({error:'template_id is inconsistent with campaign_id.'}),false;}return true;}
- r.get('/',async(req,res)=>{const {business_id:businessId,customer_id:customerId,campaign_id:campaignId,status}=req.query;if(!validId(businessId))return res.status(400).json({error:'business_id query parameter must be a valid UUID.'});if(customerId!==undefined&&!validId(customerId)||campaignId!==undefined&&!validId(campaignId))return res.status(400).json({error:'customer_id and campaign_id query parameters must be valid UUIDs.'});if(status!==undefined&&!STATUSES.has(status))return res.status(400).json({error:'status query parameter is invalid.'});const business=await B().findById(businessId);if(business.error)return db(res,business.error);if(!business.data)return res.status(404).json({error:'Business not found.'});if(customerId){const customer=await C().findById(customerId);if(customer.error)return db(res,customer.error);if(!customer.data)return res.status(404).json({error:'Customer not found.'});if(customer.data.business_id!==businessId)return res.status(400).json({error:'customer_id does not belong to business_id.'});}if(campaignId){const campaign=await A().findById(campaignId);if(campaign.error)return db(res,campaign.error);if(!campaign.data)return res.status(404).json({error:'Campaign not found.'});if(campaign.data.business_id!==businessId)return res.status(400).json({error:'campaign_id does not belong to business_id.'});}const {data,error}=await M().list({businessId,customerId,campaignId,status});return error?db(res,error):res.json({data});});
- r.get('/:id',async(req,res)=>{if(!validId(req.params.id))return res.status(400).json({error:'message id must be a valid UUID.'});const {data,error}=await M().findById(req.params.id);if(error)return db(res,error);return data?res.json({data}):res.status(404).json({error:'Message not found.'});});
+r.get('/', async (req, res) => {
+  const {
+    business_id: businessId,
+    customer_id: customerId,
+    campaign_id: campaignId,
+    status,
+  } = req.query;
+
+  if (!validId(businessId)) {
+    return res.status(400).json({
+      error: 'business_id query parameter must be a valid UUID.',
+    });
+  }
+
+  if (
+    (customerId !== undefined && !validId(customerId)) ||
+    (campaignId !== undefined && !validId(campaignId))
+  ) {
+    return res.status(400).json({
+      error:
+        'customer_id and campaign_id query parameters must be valid UUIDs.',
+    });
+  }
+
+  if (status !== undefined && !STATUSES.has(status)) {
+    return res.status(400).json({
+      error: 'status query parameter is invalid.',
+    });
+  }
+
+  const business = await B().findById(businessId);
+
+  if (business.error) {
+    return db(res, business.error);
+  }
+
+  if (!business.data) {
+    return res.status(404).json({
+      error: 'Business not found.',
+    });
+  }
+
+  if (customerId) {
+    const customer = await C().findById(customerId);
+
+    if (customer.error) {
+      return db(res, customer.error);
+    }
+
+    if (!customer.data) {
+      return res.status(404).json({
+        error: 'Customer not found.',
+      });
+    }
+
+    if (customer.data.business_id !== businessId) {
+      return res.status(400).json({
+        error: 'customer_id does not belong to business_id.',
+      });
+    }
+  }
+
+  if (campaignId) {
+    const campaign = await A().findById(campaignId);
+
+    if (campaign.error) {
+      return db(res, campaign.error);
+    }
+
+    if (!campaign.data) {
+      return res.status(404).json({
+        error: 'Campaign not found.',
+      });
+    }
+
+    if (campaign.data.business_id !== businessId) {
+      return res.status(400).json({
+        error: 'campaign_id does not belong to business_id.',
+      });
+    }
+  }
+
+  const { data, error } = await M().list({
+    businessId,
+    customerId,
+    campaignId,
+    status,
+  });
+
+  if (error) {
+    return db(res, error);
+  }
+
+  const customersResult =
+    await C().listByBusinessId(businessId);
+
+  if (customersResult.error) {
+    return db(res, customersResult.error);
+  }
+
+  const customerMap = new Map(
+    (customersResult.data ?? []).map((customer) => [
+      customer.id,
+      customer.name,
+    ])
+  );
+
+  const enrichedMessages = (data ?? []).map((message) => ({
+    ...message,
+    customerName:
+      customerMap.get(message.customer_id) ||
+      'Unknown Customer',
+  }));
+
+  return res.json({
+    data: enrichedMessages,
+  });
+}); r.get('/:id',async(req,res)=>{if(!validId(req.params.id))return res.status(400).json({error:'message id must be a valid UUID.'});const {data,error}=await M().findById(req.params.id);if(error)return db(res,error);return data?res.json({data}):res.status(404).json({error:'Message not found.'});});
  r.post('/',async(req,res)=>{const {errors,values}=validate(req.body??{},{creating:true});if(errors.length)return res.status(400).json({errors});if(!(await parents(values,res)))return;const {data,error}=await M().create(values);return error?db(res,error):res.status(201).json({data});});
  r.put('/:id',async(req,res)=>{if(!validId(req.params.id))return res.status(400).json({error:'message id must be a valid UUID.'});const old=await M().findById(req.params.id);if(old.error)return db(res,old.error);if(!old.data)return res.status(404).json({error:'Message not found.'});const {errors,values}=validate(req.body??{});if(!Object.keys(values).length)errors.push('At least one editable field is required.');if(values.status==='sent'&&!values.sent_at&&!old.data.sent_at)errors.push('sent_at is required when status is sent.');if(errors.length)return res.status(400).json({errors});const {data,error}=await M().update(req.params.id,values);return error?db(res,error):res.json({data});});
  r.delete('/:id',async(req,res)=>{if(!validId(req.params.id))return res.status(400).json({error:'message id must be a valid UUID.'});const {data,error}=await M().remove(req.params.id);if(error)return db(res,error);return data?res.status(204).send():res.status(404).json({error:'Message not found.'});});return r;

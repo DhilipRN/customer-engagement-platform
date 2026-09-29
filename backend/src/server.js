@@ -2,27 +2,45 @@
 import 'dotenv/config';
 import { createApp } from './app.js';
 import { createScheduledMessageProcessor } from './services/scheduledMessageProcessor.js';
+import { createScheduledCampaignProcessor } from './services/scheduledCampaignProcessor.js';
 
 const port = Number.parseInt(process.env.PORT ?? '3000', 10);
 const app = createApp();
 
 const messageProcessor = createScheduledMessageProcessor();
+const campaignProcessor =
+  createScheduledCampaignProcessor();
 
 const schedulerIntervalMs = 60 * 1000; // Check every 60 seconds
 
 async function processScheduledMessages() {
   try {
-    const results = await messageProcessor.processDueMessages();
+    const campaignResults =
+      await campaignProcessor.processDueCampaigns();
 
-    if (results.length > 0) {
-      console.log(`Processed ${results.length} scheduled message(s).`);
-      console.log(results);
+    if (campaignResults.length > 0) {
+      console.log(
+        `Processed ${campaignResults.length} scheduled campaign(s).`
+      );
+      console.log(campaignResults);
+    }
+
+    const messageResults =
+      await messageProcessor.processDueMessages();
+
+    if (messageResults.length > 0) {
+      console.log(
+        `Processed ${messageResults.length} scheduled message(s).`
+      );
+      console.log(messageResults);
     }
   } catch (error) {
-    console.error('Scheduled message processing failed:', error.message);
+    console.error(
+      'Scheduled processing failed:',
+      error.message
+    );
   }
 }
-
 app.listen(port, () => {
   console.log(`Customer Engagement API listening on port ${port}`);
 
