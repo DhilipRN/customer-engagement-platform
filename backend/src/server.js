@@ -3,6 +3,8 @@ import 'dotenv/config';
 import { createApp } from './app.js';
 import { createScheduledMessageProcessor } from './services/scheduledMessageProcessor.js';
 import { createScheduledCampaignProcessor } from './services/scheduledCampaignProcessor.js';
+import { createScheduledAppointmentReminderProcessor } from './services/scheduledAppointmentReminderProcessor.js';
+
 
 const port = Number.parseInt(process.env.PORT ?? '3000', 10);
 const app = createApp();
@@ -10,6 +12,9 @@ const app = createApp();
 const messageProcessor = createScheduledMessageProcessor();
 const campaignProcessor =
   createScheduledCampaignProcessor();
+
+const appointmentReminderProcessor =
+  createScheduledAppointmentReminderProcessor();
 
 const schedulerIntervalMs = 60 * 1000; // Check every 60 seconds
 
@@ -24,6 +29,17 @@ async function processScheduledMessages() {
       );
       console.log(campaignResults);
     }
+
+    const appointmentReminderResults =
+  await appointmentReminderProcessor
+    .processDueAppointmentReminders();
+
+if (appointmentReminderResults.length > 0) {
+  console.log(
+    `Processed ${appointmentReminderResults.length} appointment reminder(s).`
+  );
+  console.log(appointmentReminderResults);
+}
 
     const messageResults =
       await messageProcessor.processDueMessages();

@@ -1,5 +1,18 @@
+import Customers from './UI_Pages/Customers';
+import Dashboard from './UI_Pages/Dashboard';
+import Businesses from './UI_Pages/Businesses';
+import Purchases from './UI_Pages/Purchases';
+import MessageTemplates from './UI_Pages/MessageTemplates';
+import Campaigns from './UI_Pages/Campaigns';
+import ReviewAutomation from './UI_Pages/ReviewAutomation';
+import Messages from './UI_Pages/Messages';
+import Appointments from './UI_Pages/Appointments';
 import { useEffect, useState } from 'react';
 import './App.css';
+import Login from './Login';
+import { supabase } from './supabaseClient';
+import { apiFetch } from './api';
+
 
 const menuItems = [
   'Dashboard',
@@ -9,10 +22,37 @@ const menuItems = [
   'Message Templates',
   'Campaigns',
   'Review Automation',
+  'Appointments',
   'Messages',
 ];
 
 function App() {
+
+    const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+    useEffect(() => {
+    let isMounted = true;
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (isMounted) {
+        setSession(session);
+        setAuthLoading(false);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
   
   const [activePage, setActivePage] = useState(
   window.location.pathname === '/message-templates'
@@ -27,9 +67,12 @@ function App() {
             ? 'Purchases'
             : window.location.pathname === '/review-automation'
               ? 'Review Automation'
+              : window.location.pathname === '/appointments'
+                ? 'Appointments'
               : window.location.pathname === '/messages'
                 ? 'Messages'
                 : 'Dashboard'
+                
 );
 
   const [backendStatus, setBackendStatus] = useState('Checking...');
@@ -213,12 +256,45 @@ const [templateActionLoading, setTemplateActionLoading] = useState(false);
   const [campaignActionLoading, setCampaignActionLoading] =
     useState(false);
 
+    // -----------------------------
+// Appointments
+// -----------------------------
+const [appointments, setAppointments] = useState([]);
+const [appointmentLoading, setAppointmentLoading] = useState(false);
+const [appointmentError, setAppointmentError] = useState('');
+
+const [newAppointment, setNewAppointment] = useState({
+  business_id: '',
+  customer_id: '',
+  appointment_date: '',
+  appointment_time: '',
+  appointment_type: '',
+  reminder_enabled: true,
+  reminder_minutes: 1440,
+  template_id: '',
+});
+
+const [appointmentSubmitting, setAppointmentSubmitting] = useState(false);
+const [appointmentMessage, setAppointmentMessage] = useState('');
+
+const [editingAppointment, setEditingAppointment] = useState(null);
+
+const [editAppointmentForm, setEditAppointmentForm] = useState({
+  appointment_date: '',
+  appointment_time: '',
+  appointment_type: '',
+  status: 'scheduled',
+});
+
+const [appointmentActionLoading, setAppointmentActionLoading] =
+  useState(false);
+
   // ============================================================
   // BACKEND HEALTH
   // ============================================================
 
   useEffect(() => {
-    fetch('http://localhost:3000/health')
+    apiFetch('http://localhost:3000/health')
       .then((response) => {
         if (!response.ok) {
           throw new Error('Backend request failed');
@@ -250,7 +326,7 @@ const [templateActionLoading, setTemplateActionLoading] = useState(false);
       setBusinessError('');
 
       try {
-        const response = await fetch(
+        const response = await apiFetch(
           'http://localhost:3000/businesses'
         );
 
@@ -280,7 +356,7 @@ const [templateActionLoading, setTemplateActionLoading] = useState(false);
   useEffect(() => {
     async function loadDashboardData() {
       try {
-        const businessesResponse = await fetch(
+        const businessesResponse = await apiFetch(
           'http://localhost:3000/businesses'
         );
 
@@ -298,21 +374,21 @@ const [templateActionLoading, setTemplateActionLoading] = useState(false);
           await Promise.all([
             Promise.all(
               businessList.map((business) =>
-                fetch(
+                apiFetch(
                   `http://localhost:3000/customers?business_id=${business.id}`
                 )
               )
             ),
             Promise.all(
               businessList.map((business) =>
-                fetch(
+                apiFetch(
                   `http://localhost:3000/campaigns?business_id=${business.id}`
                 )
               )
             ),
             Promise.all(
               businessList.map((business) =>
-                fetch(
+                apiFetch(
                   `http://localhost:3000/messages?business_id=${business.id}&status=sent`
                 )
               )
@@ -362,12 +438,15 @@ const [templateActionLoading, setTemplateActionLoading] = useState(false);
     loadDashboardData();
   }, []);
 
-  // ============================================================
+   // ============================================================
   // LOAD CUSTOMERS
   // ============================================================
 
   useEffect(() => {
-    if (activePage !== 'Customers') {
+    if (
+      activePage !== 'Customers' &&
+      activePage !== 'Appointments'
+    ) {
       return;
     }
 
@@ -376,7 +455,7 @@ const [templateActionLoading, setTemplateActionLoading] = useState(false);
       setCustomerError('');
 
       try {
-        const businessesResponse = await fetch(
+        const businessesResponse = await apiFetch(
           'http://localhost:3000/businesses'
         );
 
@@ -391,7 +470,7 @@ const [templateActionLoading, setTemplateActionLoading] = useState(false);
 
         const customerResponses = await Promise.all(
           businessList.map((business) =>
-            fetch(
+            apiFetch(
               `http://localhost:3000/customers?business_id=${business.id}`
             )
           )
@@ -423,7 +502,7 @@ const [templateActionLoading, setTemplateActionLoading] = useState(false);
 
     loadCustomers();
   }, [activePage]);
-
+  
   // ============================================================
   // LOAD PURCHASES
   // ============================================================
@@ -438,7 +517,7 @@ const [templateActionLoading, setTemplateActionLoading] = useState(false);
       setPurchaseError('');
 
       try {
-        const businessesResponse = await fetch(
+        const businessesResponse = await apiFetch(
           'http://localhost:3000/businesses'
         );
 
@@ -455,14 +534,14 @@ const [templateActionLoading, setTemplateActionLoading] = useState(false);
           await Promise.all([
             Promise.all(
               businessList.map((business) =>
-                fetch(
+                apiFetch(
                   `http://localhost:3000/purchases?business_id=${business.id}`
                 )
               )
             ),
             Promise.all(
               businessList.map((business) =>
-                fetch(
+                apiFetch(
                   `http://localhost:3000/customers?business_id=${business.id}`
                 )
               )
@@ -534,7 +613,8 @@ const [templateActionLoading, setTemplateActionLoading] = useState(false);
   useEffect(() => {
   if (
   activePage !== 'Message Templates' &&
-  activePage !== 'Review Automation'
+  activePage !== 'Review Automation' &&
+  activePage !== 'Appointments'
 ) {
   return;
 }
@@ -544,7 +624,7 @@ const [templateActionLoading, setTemplateActionLoading] = useState(false);
       setTemplateError('');
 
       try {
-        const businessesResponse = await fetch(
+        const businessesResponse = await apiFetch(
           'http://localhost:3000/businesses'
         );
 
@@ -561,7 +641,7 @@ const [templateActionLoading, setTemplateActionLoading] = useState(false);
 
         const templateResponses = await Promise.all(
           businessList.map((business) =>
-            fetch(
+            apiFetch(
               `http://localhost:3000/message-templates?business_id=${business.id}`
             )
           )
@@ -612,7 +692,7 @@ useEffect(() => {
     setReviewAutomationError('');
 
     try {
-      const businessesResponse = await fetch(
+      const businessesResponse = await apiFetch(
         'http://localhost:3000/businesses'
       );
 
@@ -627,7 +707,7 @@ useEffect(() => {
 
       const results = await Promise.all(
         businessList.map(async (business) => {
-          const response = await fetch(
+          const response = await apiFetch(
             `http://localhost:3000/review-automations?business_id=${business.id}`
           );
 
@@ -704,7 +784,7 @@ useEffect(() => {
     setMessageError('');
 
     try {
-      const businessesResponse = await fetch(
+      const businessesResponse = await apiFetch(
         'http://localhost:3000/businesses'
       );
 
@@ -721,10 +801,10 @@ useEffect(() => {
         businessList.map(async (business) => {
           const [messagesResponse, customersResponse] =
             await Promise.all([
-              fetch(
+              apiFetch(
                 `http://localhost:3000/messages?business_id=${business.id}`
               ),
-              fetch(
+              apiFetch(
                 `http://localhost:3000/customers?business_id=${business.id}`
               ),
             ]);
@@ -795,7 +875,7 @@ useEffect(() => {
       setCampaignError('');
 
       try {
-        const businessesResponse = await fetch(
+        const businessesResponse = await apiFetch(
           'http://localhost:3000/businesses'
         );
 
@@ -812,7 +892,7 @@ useEffect(() => {
 
         const campaignResponses = await Promise.all(
           businessList.map((business) =>
-            fetch(
+            apiFetch(
               `http://localhost:3000/campaigns?business_id=${business.id}`
             )
           )
@@ -854,6 +934,267 @@ useEffect(() => {
   }, [activePage]);
 
   // ============================================================
+// LOAD APPOINTMENTS
+// ============================================================
+
+useEffect(() => {
+  if (activePage !== 'Appointments') {
+    return;
+  }
+
+  async function loadAppointments() {
+    setAppointmentLoading(true);
+    setAppointmentError('');
+
+    try {
+      const businessesResponse = await apiFetch(
+        'http://localhost:3000/businesses'
+      );
+
+      if (!businessesResponse.ok) {
+        throw new Error('Unable to load businesses');
+      }
+
+      const businessesResult = await businessesResponse.json();
+      const businessList = businessesResult.data ?? [];
+
+      setBusinesses(businessList);
+
+      const appointmentResponses = await Promise.all(
+        businessList.map((business) =>
+          apiFetch(
+            `http://localhost:3000/appointments?business_id=${business.id}`
+          )
+        )
+      );
+
+      if (appointmentResponses.some((response) => !response.ok)) {
+        throw new Error('Unable to load appointments');
+      }
+
+      const appointmentResults = await Promise.all(
+        appointmentResponses.map((response) => response.json())
+      );
+
+      const allAppointments = appointmentResults.flatMap(
+        (result, index) =>
+          (result.data ?? []).map((appointment) => ({
+            ...appointment,
+            businessName: businessList[index].name,
+          }))
+      );
+
+      setAppointments(allAppointments);
+    } catch (error) {
+      setAppointmentError(error.message);
+    } finally {
+      setAppointmentLoading(false);
+    }
+  }
+
+  loadAppointments();
+}, [activePage]);
+
+// ============================================================
+// ADD APPOINTMENT
+// ============================================================
+
+async function handleAddAppointment(event) {
+  event.preventDefault();
+
+  setAppointmentSubmitting(true);
+  setAppointmentMessage('');
+
+  try {
+    const payload = {
+      ...newAppointment,
+      reminder_minutes: Number(newAppointment.reminder_minutes),
+      template_id: newAppointment.template_id || null,
+    };
+
+    const response = await apiFetch(
+      'http://localhost:3000/appointments',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.error ||
+          result.errors?.join(', ') ||
+          'Unable to create appointment'
+      );
+    }
+
+    const selectedBusiness = businesses.find(
+      (business) => business.id === newAppointment.business_id
+    );
+
+    const selectedCustomer = customers.find(
+      (customer) => customer.id === newAppointment.customer_id
+    );
+
+    setAppointments((previous) => [
+      {
+        ...result.data,
+        businessName: selectedBusiness?.name || '',
+        customerName: selectedCustomer?.name || '',
+      },
+      ...previous,
+    ]);
+
+    setNewAppointment({
+      business_id: '',
+      customer_id: '',
+      appointment_date: '',
+      appointment_time: '',
+      appointment_type: '',
+      reminder_enabled: true,
+      reminder_minutes: 1440,
+      template_id: '',
+    });
+
+    setAppointmentMessage('Appointment created successfully!');
+  } catch (error) {
+    setAppointmentMessage(error.message);
+  } finally {
+    setAppointmentSubmitting(false);
+  }
+}
+
+// ============================================================
+// EDIT APPOINTMENT
+// ============================================================
+
+function startEditingAppointment(appointment) {
+  setEditingAppointment(appointment);
+
+  setEditAppointmentForm({
+    appointment_date: appointment.appointment_date || '',
+    appointment_time: appointment.appointment_time || '',
+    appointment_type: appointment.appointment_type || '',
+    status: appointment.status || 'scheduled',
+  });
+
+  setAppointmentMessage('');
+}
+
+async function handleEditAppointment(event) {
+  event.preventDefault();
+
+  if (!editingAppointment) {
+    return;
+  }
+
+  setAppointmentActionLoading(true);
+  setAppointmentMessage('');
+
+  try {
+    const response = await apiFetch(
+      `http://localhost:3000/appointments/${editingAppointment.id}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(editAppointmentForm),
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.error ||
+          result.errors?.join(', ') ||
+          'Unable to update appointment'
+      );
+    }
+
+    setAppointments((previous) =>
+      previous.map((appointment) =>
+        appointment.id === editingAppointment.id
+          ? { ...appointment, ...result.data }
+          : appointment
+      )
+    );
+
+    setAppointmentMessage('Appointment updated successfully!');
+    setEditingAppointment(null);
+  } catch (error) {
+    setAppointmentMessage(error.message);
+  } finally {
+    setAppointmentActionLoading(false);
+  }
+}
+
+// ============================================================
+// CANCEL APPOINTMENT
+// ============================================================
+
+async function handleCancelAppointment(appointment) {
+  const confirmed = window.confirm(
+    `Are you sure you want to cancel the appointment for ${
+      appointment.customerName || 'this customer'
+    }?`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  setAppointmentActionLoading(true);
+  setAppointmentMessage('');
+
+  try {
+    const response = await apiFetch(
+      `http://localhost:3000/appointments/${appointment.id}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: 'cancelled' }),
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.error ||
+          result.errors?.join(', ') ||
+          'Unable to cancel appointment'
+      );
+    }
+
+    setAppointments((previous) =>
+      previous.map((item) =>
+        item.id === appointment.id
+          ? { ...item, ...result.data }
+          : item
+      )
+    );
+
+    setAppointmentMessage('Appointment cancelled successfully!');
+
+    if (editingAppointment?.id === appointment.id) {
+      setEditingAppointment(null);
+    }
+  } catch (error) {
+    setAppointmentMessage(error.message);
+  } finally {
+    setAppointmentActionLoading(false);
+  }
+}
+  // ============================================================
   // BUSINESSES CRUD
   // ============================================================
 
@@ -863,7 +1204,7 @@ useEffect(() => {
     setBusinessMessage('');
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         'http://localhost:3000/businesses',
         {
           method: 'POST',
@@ -922,7 +1263,7 @@ useEffect(() => {
     setBusinessMessage('');
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `http://localhost:3000/businesses/${editingBusiness.id}`,
         {
           method: 'PUT',
@@ -970,7 +1311,7 @@ useEffect(() => {
     setBusinessMessage('');
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `http://localhost:3000/businesses/${business.id}`,
         { method: 'DELETE' }
       );
@@ -1017,7 +1358,7 @@ useEffect(() => {
     setCustomerMessage('');
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         'http://localhost:3000/customers',
         {
           method: 'POST',
@@ -1084,7 +1425,7 @@ useEffect(() => {
     setCustomerMessage('');
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `http://localhost:3000/customers/${editingCustomer.id}`,
         {
           method: 'PUT',
@@ -1162,7 +1503,7 @@ useEffect(() => {
     setCustomerMessage('');
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `http://localhost:3000/customers/${customer.id}`,
         {
           method: 'DELETE',
@@ -1221,7 +1562,7 @@ useEffect(() => {
     setPurchaseMessage('');
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         'http://localhost:3000/purchases',
         {
           method: 'POST',
@@ -1299,7 +1640,7 @@ useEffect(() => {
     setPurchaseMessage('');
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `http://localhost:3000/purchases/${editingPurchase.id}`,
         {
           method: 'PUT',
@@ -1384,7 +1725,7 @@ useEffect(() => {
     setPurchaseMessage('');
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `http://localhost:3000/purchases/${purchase.id}`,
         {
           method: 'DELETE',
@@ -1439,7 +1780,7 @@ useEffect(() => {
     setTemplateMessage('');
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         'http://localhost:3000/message-templates',
         {
           method: 'POST',
@@ -1506,7 +1847,7 @@ useEffect(() => {
           : undefined,
     };
 
-    const response = await fetch(
+    const response = await apiFetch(
       'http://localhost:3000/campaigns',
       {
         method: 'POST',
@@ -1580,7 +1921,7 @@ async function handleEditCampaign(event) {
   setCampaignMessage('');
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `http://localhost:3000/campaigns/${editingCampaign.id}`,
       {
         method: 'PUT',
@@ -1647,7 +1988,7 @@ async function handleDeleteCampaign(campaign) {
   setCampaignMessage('');
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `http://localhost:3000/campaigns/${campaign.id}`,
       {
         method: 'DELETE',
@@ -1718,7 +2059,7 @@ function startEditingCampaign(campaign) {
   setTemplateMessage('');
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `http://localhost:3000/message-templates/${editingTemplate.id}`,
       {
         method: 'PUT',
@@ -1789,7 +2130,7 @@ async function handleDeleteTemplate(template) {
   setTemplateMessage('');
 
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `http://localhost:3000/message-templates/${template.id}`,
       {
         method: 'DELETE',
@@ -1898,7 +2239,7 @@ async function handleDeleteTemplate(template) {
       ? `http://localhost:3000/review-automations/${existing.automation.id}`
       : 'http://localhost:3000/review-automations';
 
-    const response = await fetch(url, {
+    const response = await apiFetch(url, {
       method,
       headers: {
         'Content-Type': 'application/json',
@@ -1936,11 +2277,28 @@ async function handleDeleteTemplate(template) {
     setReviewSubmitting(false);
   }
 }
+
+  async function handleLogout() {
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      console.error('Logout failed:', error);
+      alert(error.message);
+    }
+  }
   // ============================================================
   // UI
   // ============================================================
 
-  return (
+if (authLoading) {
+  return <div>Loading...</div>;
+}
+
+if (!session) {
+  return <Login />;
+}
+
+return (
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
@@ -1978,13 +2336,29 @@ async function handleDeleteTemplate(template) {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="avatar">D</div>
+  <div className="avatar">D</div>
 
-          <div>
-            <strong>Platform Admin</strong>
-            <span>Administrator</span>
-          </div>
-        </div>
+  <div>
+    <strong>Platform Admin</strong>
+    <span>Administrator</span>
+
+    <button
+      type="button"
+      onClick={handleLogout}
+      style={{
+        marginTop: '8px',
+        padding: '6px 10px',
+        border: 'none',
+        borderRadius: '6px',
+        background: 'transparent',
+        cursor: 'pointer',
+        color: '#ffffff',
+      }}
+    >
+      Logout
+    </button>
+  </div>
+</div>
       </aside>
 
       <main className="main-content">
@@ -2003,1865 +2377,171 @@ async function handleDeleteTemplate(template) {
           </div>
         </header>
 
-        {/* ======================================================
-            DASHBOARD
-        ====================================================== */}
+      {activePage === 'Dashboard' ? (
+  <Dashboard
+    stats={stats}
+    backendStatus={backendStatus}
+    setActivePage={setActivePage}
+  />
 
-        {activePage === 'Dashboard' ? (
-          <>
-            <section className="welcome">
-              <div>
-                <p className="eyebrow">OVERVIEW</p>
-
-                <h2>
-                  Welcome to your workspace 👋
-                </h2>
-
-                <p>
-                  Manage businesses, customers,
-                  campaigns, and review automation
-                  from one place.
-                </p>
-              </div>
-            </section>
-
-            <section className="stats-grid">
-              {stats.map((stat) => (
-                <article
-                  className="stat-card"
-                  key={stat.label}
-                >
-                  <div className="stat-top">
-                    <span>{stat.label}</span>
-
-                    <span className="stat-icon">
-                      {stat.icon}
-                    </span>
-                  </div>
-
-                  <strong>{stat.value}</strong>
-
-                  <p>Live backend data</p>
-                </article>
-              ))}
-            </section>
-
-            <section className="content-grid">
-              <article className="panel">
-                <div className="panel-heading">
-                  <div>
-                    <h3>Quick Actions</h3>
-                    <p>
-                      Jump into a workspace feature
-                    </p>
-                  </div>
-                </div>
-
-                <div className="quick-actions">
-                  {[
-                    'Businesses',
-                    'Customers',
-                    'Campaigns',
-                    'Messages',
-                  ].map((item) => (
-                    <button
-                      key={item}
-                      className="quick-action"
-                      onClick={() =>
-                        setActivePage(item)
-                      }
-                    >
-                      <span>{item}</span>
-                      <span className="action-arrow">
-                        →
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </article>
-
-              <article className="panel">
-                <div className="panel-heading">
-                  <div>
-                    <h3>System Status</h3>
-                    <p>
-                      Application setup overview
-                    </p>
-                  </div>
-                </div>
-
-                <div className="status-row">
-                  <span>Frontend</span>
-
-                  <span className="status-label">
-                    <span className="status-dot" />
-                    Running
-                  </span>
-                </div>
-
-                <div className="status-row">
-                  <span>Backend</span>
-
-                  <span
-                    className={`status-label ${
-                      backendStatus === 'Connected'
-                        ? ''
-                        : 'pending'
-                    }`}
-                  >
-                    {backendStatus}
-                  </span>
-                </div>
-
-                <div className="status-row">
-                  <span>Supabase</span>
-
-                  <span className="status-label pending">
-                    Connected through backend
-                  </span>
-                </div>
-
-                <p className="panel-note">
-                  Dashboard data is connected to your backend.
-                </p>
-              </article>
-            </section>
-          </>
-
-        /* ======================================================
-           BUSINESSES / CUSTOMERS
-        ====================================================== */
-
-         ) : activePage === 'Businesses' ? (
-          <section className="panel">
-            <div className="panel-heading">
-              <div>
-                <h3>Businesses</h3>
-                <p>Manage the businesses connected to your platform.</p>
-              </div>
-            </div>
-
-            <form className="customer-form" onSubmit={handleAddBusiness}>
-              <h3>Add Business</h3>
-
-              <div className="form-grid">
-                <label>
-                  Business Name
-                  <input
-                    value={newBusiness.name}
-                    onChange={(event) =>
-                      setNewBusiness({ ...newBusiness, name: event.target.value })
-                    }
-                    placeholder="Enter business name"
-                    required
-                  />
-                </label>
-
-                <label>
-                  Phone
-                  <input
-                    type="tel"
-                    value={newBusiness.phone}
-                    onChange={(event) =>
-                      setNewBusiness({ ...newBusiness, phone: event.target.value })
-                    }
-                    placeholder="Enter business phone"
-                  />
-                </label>
-
-                <label>
-                  Email
-                  <input
-                    type="email"
-                    value={newBusiness.email}
-                    onChange={(event) =>
-                      setNewBusiness({ ...newBusiness, email: event.target.value })
-                    }
-                    placeholder="Enter business email"
-                  />
-                </label>
-
-                <label>
-                  Google Review Link
-                  <input
-                    type="url"
-                    value={newBusiness.google_review_link}
-                    onChange={(event) =>
-                      setNewBusiness({
-                        ...newBusiness,
-                        google_review_link: event.target.value,
-                      })
-                    }
-                    placeholder="https://g.page/..."
-                  />
-                </label>
-
-                <label>
-                  Address
-                  <textarea
-                    value={newBusiness.address}
-                    onChange={(event) =>
-                      setNewBusiness({ ...newBusiness, address: event.target.value })
-                    }
-                    placeholder="Enter business address"
-                    rows="3"
-                  />
-                </label>
-              </div>
-
-              <div className="form-actions" style={{ gridColumn: '1 / -1' }}>
-                <button type="submit" disabled={businessSubmitting}>
-                  {businessSubmitting ? 'Adding...' : 'Add Business'}
-                </button>
-              </div>
-
-              {businessMessage && <p>{businessMessage}</p>}
-            </form>
-
-            {editingBusiness && (
-              <form className="customer-form" onSubmit={handleEditBusiness}>
-                <h3>Edit Business</h3>
-
-                <div className="form-grid">
-                  <label>
-                    Business Name
-                    <input
-                      value={editBusinessForm.name}
-                      onChange={(event) =>
-                        setEditBusinessForm((previous) => ({
-                          ...previous,
-                          name: event.target.value,
-                        }))
-                      }
-                      required
-                    />
-                  </label>
-
-                  <label>
-                    Phone
-                    <input
-                      type="tel"
-                      value={editBusinessForm.phone}
-                      onChange={(event) =>
-                        setEditBusinessForm((previous) => ({
-                          ...previous,
-                          phone: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    Email
-                    <input
-                      type="email"
-                      value={editBusinessForm.email}
-                      onChange={(event) =>
-                        setEditBusinessForm((previous) => ({
-                          ...previous,
-                          email: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    Google Review Link
-                    <input
-                      type="url"
-                      value={editBusinessForm.google_review_link}
-                      onChange={(event) =>
-                        setEditBusinessForm((previous) => ({
-                          ...previous,
-                          google_review_link: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    Address
-                    <textarea
-                      value={editBusinessForm.address}
-                      onChange={(event) =>
-                        setEditBusinessForm((previous) => ({
-                          ...previous,
-                          address: event.target.value,
-                        }))
-                      }
-                      rows="3"
-                    />
-                  </label>
-                </div>
-
-                <div className="form-actions">
-                  <button type="submit" disabled={businessActionLoading}>
-                    {businessActionLoading ? 'Saving...' : 'Save Changes'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditingBusiness(null)}
-                    disabled={businessActionLoading}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {businessLoading ? (
-              <p>Loading businesses...</p>
-            ) : businessError ? (
-              <p className="error-message">{businessError}</p>
-            ) : businesses.length === 0 ? (
-              <p>No businesses found.</p>
-            ) : (
-              <div className="table-container">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Phone</th>
-                      <th>Email</th>
-                      <th>Address</th>
-                      <th>Google Review Link</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {businesses.map((business) => (
-                      <tr key={business.id}>
-                        <td>{business.name}</td>
-                        <td>{business.phone || '-'}</td>
-                        <td>{business.email || '-'}</td>
-                        <td>{business.address || '-'}</td>
-                        <td>
-                          {business.google_review_link ? (
-                            <a
-                              href={business.google_review_link}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              Open Link
-                            </a>
-                          ) : (
-                            '-'
-                          )}
-                        </td>
-                        <td>
-                          <div className="form-actions">
-                            <button
-                              type="button"
-                              onClick={() => startEditingBusiness(business)}
-                              disabled={businessActionLoading}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteBusiness(business)}
-                              disabled={businessActionLoading}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
+) : activePage === 'Businesses' ? (
+  <Businesses
+    businesses={businesses}
+    businessLoading={businessLoading}
+    businessError={businessError}
+    newBusiness={newBusiness}
+    setNewBusiness={setNewBusiness}
+    businessSubmitting={businessSubmitting}
+    businessMessage={businessMessage}
+    handleAddBusiness={handleAddBusiness}
+    editingBusiness={editingBusiness}
+    editBusinessForm={editBusinessForm}
+    setEditBusinessForm={setEditBusinessForm}
+    businessActionLoading={businessActionLoading}
+    handleEditBusiness={handleEditBusiness}
+    setEditingBusiness={setEditingBusiness}
+    startEditingBusiness={startEditingBusiness}
+    handleDeleteBusiness={handleDeleteBusiness}
+    />
 ) : activePage === 'Customers' ? (
-          <section className="panel">
-            <div className="panel-heading">
-              <div>
-                <h3>Customers</h3>
-                <p>
-                  Customers across your businesses
-                </p>
-              </div>
-            </div>
-
-            <form
-              onSubmit={handleAddCustomer}
-              className="customer-form"
-            >
-              <h3>Add Customer</h3>
-
-              <label>
-                Business
-
-                <select
-                  value={newCustomer.business_id}
-                  onChange={(event) =>
-                    setNewCustomer({
-                      ...newCustomer,
-                      business_id:
-                        event.target.value,
-                    })
-                  }
-                  required
-                >
-                  <option value="">
-                    Select a business
-                  </option>
-
-                  {businesses.map((business) => (
-                    <option
-                      key={business.id}
-                      value={business.id}
-                    >
-                      {business.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Name
-
-                <input
-                  value={newCustomer.name}
-                  onChange={(event) =>
-                    setNewCustomer({
-                      ...newCustomer,
-                      name: event.target.value,
-                    })
-                  }
-                  required
-                />
-              </label>
-
-              <label>
-                Phone
-
-                <input
-                  type="tel"
-                  value={newCustomer.phone}
-                  onChange={(event) => {
-                    const digitsOnly =
-                      event.target.value
-                        .replace(/\D/g, '')
-                        .slice(0, 10);
-
-                    setNewCustomer({
-                      ...newCustomer,
-                      phone: digitsOnly,
-                    });
-                  }}
-                  pattern="[0-9]{10}"
-                  maxLength={10}
-                  minLength={10}
-                  title="Please enter exactly 10 digits"
-                  placeholder="Enter 10-digit phone number"
-                  required
-                />
-              </label>
-
-              <label>
-                Email
-
-                <input
-                  type="email"
-                  value={newCustomer.email}
-                  onChange={(event) =>
-                    setNewCustomer({
-                      ...newCustomer,
-                      email: event.target.value,
-                    })
-                  }
-                />
-              </label>
-
-              <label className="consent-field">
-                <input
-                  type="checkbox"
-                  checked={
-                    newCustomer.consent_given
-                  }
-                  onChange={(event) =>
-                    setNewCustomer({
-                      ...newCustomer,
-                      consent_given:
-                        event.target.checked,
-                    })
-                  }
-                />
-
-                Customer has given consent to receive
-                messages
-              </label>
-
-              <button
-                type="submit"
-                disabled={customerSubmitting}
-              >
-                {customerSubmitting
-                  ? 'Adding...'
-                  : 'Add Customer'}
-              </button>
-
-              {customerMessage && (
-                <p>{customerMessage}</p>
-              )}
-            </form>
-            {editingCustomer && (
-              <form
-                onSubmit={handleEditCustomer}
-                className="customer-form"
-              >
-                <h3>Edit Customer</h3>
-
-                <label>
-                  Name
-
-                  <input
-                    value={editCustomerForm.name}
-                    onChange={(event) =>
-                      setEditCustomerForm({
-                        ...editCustomerForm,
-                        name: event.target.value,
-                      })
-                    }
-                    required
-                  />
-                </label>
-
-                <label>
-                  Phone
-
-                  <input
-                    type="tel"
-                    value={editCustomerForm.phone}
-                    onChange={(event) => {
-                      const digitsOnly =
-                        event.target.value
-                          .replace(/\D/g, '')
-                          .slice(0, 10);
-
-                      setEditCustomerForm({
-                        ...editCustomerForm,
-                        phone: digitsOnly,
-                      });
-                    }}
-                    pattern="[0-9]{10}"
-                    maxLength={10}
-                    minLength={10}
-                    title="Please enter exactly 10 digits"
-                    required
-                  />
-                </label>
-
-                <label>
-                  Email
-
-                  <input
-                    type="email"
-                    value={editCustomerForm.email}
-                    onChange={(event) =>
-                      setEditCustomerForm({
-                        ...editCustomerForm,
-                        email: event.target.value,
-                      })
-                    }
-                  />
-                </label>
-
-                <label className="consent-field">
-                  <input
-                    type="checkbox"
-                    checked={
-                      editCustomerForm.consent_given
-                    }
-                    onChange={(event) =>
-                      setEditCustomerForm({
-                        ...editCustomerForm,
-                        consent_given:
-                          event.target.checked,
-                      })
-                    }
-                  />
-
-                  Customer has given consent to
-                  receive messages
-                </label>
-
-                <button
-                  type="submit"
-                  disabled={customerActionLoading}
-                >
-                  {customerActionLoading
-                    ? 'Saving...'
-                    : 'Save Changes'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setEditingCustomer(null)
-                  }
-                  disabled={customerActionLoading}
-                >
-                  Cancel
-                </button>
-              </form>
-            )}
-
-            {customerLoading ? (
-              <p>Loading customers...</p>
-            ) : customerError ? (
-              <p className="error-message">
-                {customerError}
-              </p>
-            ) : customers.length === 0 ? (
-              <p>No customers found.</p>
-            ) : (
-              <div className="table-container">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Business</th>
-                      <th>Phone</th>
-                      <th>Email</th>
-                      <th>Consent</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {customers.map((customer) => (
-                      <tr key={customer.id}>
-                        <td>{customer.name}</td>
-                        <td>
-                          {customer.businessName}
-                        </td>
-                        <td>{customer.phone}</td>
-                        <td>
-                          {customer.email || '-'}
-                        </td>
-                        <td>
-                          {customer.consent_given
-                            ? 'Yes'
-                            : 'No'}
-                        </td>
-
-                        <td>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              startEditingCustomer(
-                                customer
-                              )
-                            }
-                            disabled={
-                              customerActionLoading
-                            }
-                          >
-                            Edit
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleDeleteCustomer(
-                                customer
-                              )
-                            }
-                            disabled={
-                              customerActionLoading
-                            }
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-        /* ======================================================
-           PURCHASES
-        ====================================================== */
-
-        ) : activePage === 'Purchases' ? (
-          <section className="panel">
-            <div className="panel-heading">
-              <div>
-                <h3>Purchases</h3>
-                <p>
-                  Purchase history across your
-                  businesses
-                </p>
-              </div>
-            </div>
-
-            <form
-              className="customer-form"
-              onSubmit={handleAddPurchase}
-            >
-              <h3>Add Purchase</h3>
-
-              <label>
-                Business
-
-                <select
-                  value={newPurchase.business_id}
-                  onChange={(event) =>
-                    setNewPurchase({
-                      ...newPurchase,
-                      business_id:
-                        event.target.value,
-                      customer_id: '',
-                    })
-                  }
-                  required
-                >
-                  <option value="">
-                    Select a business
-                  </option>
-
-                  {businesses.map((business) => (
-                    <option
-                      key={business.id}
-                      value={business.id}
-                    >
-                      {business.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Customer
-
-                <select
-                  value={newPurchase.customer_id}
-                  onChange={(event) =>
-                    setNewPurchase({
-                      ...newPurchase,
-                      customer_id:
-                        event.target.value,
-                    })
-                  }
-                  required
-                  disabled={
-                    !newPurchase.business_id
-                  }
-                >
-                  <option value="">
-                    Select a customer
-                  </option>
-
-                  {customers
-                    .filter(
-                      (customer) =>
-                        customer.business_id ===
-                        newPurchase.business_id
-                    )
-                    .map((customer) => (
-                      <option
-                        key={customer.id}
-                        value={customer.id}
-                      >
-                        {customer.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-
-              <label>
-                Product / Service
-
-                <input
-                  value={newPurchase.product_name}
-                  onChange={(event) =>
-                    setNewPurchase({
-                      ...newPurchase,
-                      product_name:
-                        event.target.value,
-                    })
-                  }
-                  placeholder="Enter product or service"
-                  required
-                />
-              </label>
-
-              <label>
-                Amount (₹)
-
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={newPurchase.amount}
-                  onChange={(event) =>
-                    setNewPurchase({
-                      ...newPurchase,
-                      amount: event.target.value,
-                    })
-                  }
-                  placeholder="Enter amount"
-                  required
-                />
-              </label>
-
-              <label>
-                Purchase Date
-
-                <input
-                  type="date"
-                  value={
-                    newPurchase.purchase_date
-                  }
-                  onChange={(event) =>
-                    setNewPurchase({
-                      ...newPurchase,
-                      purchase_date:
-                        event.target.value,
-                    })
-                  }
-                  required
-                />
-              </label>
-
-              <button
-                type="submit"
-                disabled={purchaseSubmitting}
-              >
-                {purchaseSubmitting
-                  ? 'Adding...'
-                  : 'Add Purchase'}
-              </button>
-
-              {purchaseMessage && (
-                <p>{purchaseMessage}</p>
-              )}
-            </form>
-
-            {editingPurchase && (
-              <form
-                className="customer-form"
-                onSubmit={handleEditPurchase}
-              >
-                <h3>Edit Purchase</h3>
-
-                <div className="form-grid">
-                  <label>
-                    Product / Service
-
-                    <input
-                      type="text"
-                      value={
-                        editPurchaseForm.product_name
-                      }
-                      onChange={(event) =>
-                        setEditPurchaseForm(
-                          (previous) => ({
-                            ...previous,
-                            product_name:
-                              event.target.value,
-                          })
-                        )
-                      }
-                      required
-                    />
-                  </label>
-
-                  <label>
-                    Amount (₹)
-
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={
-                        editPurchaseForm.amount
-                      }
-                      onChange={(event) =>
-                        setEditPurchaseForm(
-                          (previous) => ({
-                            ...previous,
-                            amount:
-                              event.target.value,
-                          })
-                        )
-                      }
-                      required
-                    />
-                  </label>
-
-                  <label>
-                    Purchase Date
-
-                    <input
-                      type="date"
-                      value={
-                        editPurchaseForm.purchase_date
-                      }
-                      onChange={(event) =>
-                        setEditPurchaseForm(
-                          (previous) => ({
-                            ...previous,
-                            purchase_date:
-                              event.target.value,
-                          })
-                        )
-                      }
-                      required
-                    />
-                  </label>
-                </div>
-
-                <div className="form-actions">
-                  <button
-                    type="submit"
-                    disabled={
-                      purchaseActionLoading
-                    }
-                  >
-                    {purchaseActionLoading
-                      ? 'Saving...'
-                      : 'Save Changes'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setEditingPurchase(null)
-                    }
-                    disabled={
-                      purchaseActionLoading
-                    }
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {purchaseLoading ? (
-              <p>Loading purchases...</p>
-            ) : purchaseError ? (
-              <p className="error-message">
-                {purchaseError}
-              </p>
-            ) : purchases.length === 0 ? (
-              <p>No purchases found.</p>
-            ) : (
-              <div className="table-container">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Customer</th>
-                      <th>Business</th>
-                      <th>Product / Service</th>
-                      <th>Amount</th>
-                      <th>Purchase Date</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {purchases.map((purchase) => (
-                      <tr key={purchase.id}>
-                        <td>
-                          {purchase.customerName}
-                        </td>
-
-                        <td>
-                          {purchase.businessName}
-                        </td>
-
-                        <td>
-                          {purchase.product_name}
-                        </td>
-
-                        <td>
-                          {purchase.amount == null
-                            ? '-'
-                            : `₹${Number(
-                                purchase.amount
-                              ).toFixed(2)}`}
-                        </td>
-
-                        <td>
-                          {purchase.purchase_date
-                            ? new Date(
-                                purchase.purchase_date
-                              ).toLocaleDateString()
-                            : '-'}
-                        </td>
-
-                        <td>
-                          <div className="form-actions">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                startEditingPurchase(
-                                  purchase
-                                )
-                              }
-                              disabled={
-                                purchaseActionLoading
-                              }
-                            >
-                              Edit
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleDeletePurchase(
-                                  purchase
-                                )
-                              }
-                              disabled={
-                                purchaseActionLoading
-                              }
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-        /* ======================================================
-           MESSAGE TEMPLATES
-        ====================================================== */
-
-        ) : activePage === 'Message Templates' ? (
-          <section className="panel">
-            <div className="panel-heading">
-              <div>
-                <h3>Message Templates</h3>
-                <p>
-                  Create and manage reusable customer
-                  messages.
-                </p>
-              </div>
-            </div>
-
-            <form
-              className="customer-form"
-              onSubmit={handleAddTemplate}
-            >
-              <h3>Add Message Template</h3>
-
-              <label>
-                Business
-
-                <select
-                  value={newTemplate.business_id}
-                  onChange={(event) =>
-                    setNewTemplate({
-                      ...newTemplate,
-                      business_id:
-                        event.target.value,
-                    })
-                  }
-                  required
-                >
-                  <option value="">
-                    Select a business
-                  </option>
-
-                  {businesses.map((business) => (
-                    <option
-                      key={business.id}
-                      value={business.id}
-                    >
-                      {business.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Template Name
-
-                <input
-                  type="text"
-                  value={newTemplate.name}
-                  onChange={(event) =>
-                    setNewTemplate({
-                      ...newTemplate,
-                      name: event.target.value,
-                    })
-                  }
-                  placeholder="Example: Review Request"
-                  required
-                />
-              </label>
-
-             <label>
-  Category
-
-  <select
-    value={newTemplate.category}
-    onChange={(event) =>
-      setNewTemplate({
-        ...newTemplate,
-        category: event.target.value,
-      })
+  <Customers
+    businesses={businesses}
+    customers={customers}
+    customerLoading={customerLoading}
+    customerError={customerError}
+    newCustomer={newCustomer}
+    setNewCustomer={setNewCustomer}
+    customerSubmitting={customerSubmitting}
+    customerMessage={customerMessage}
+    handleAddCustomer={handleAddCustomer}
+    editingCustomer={editingCustomer}
+    editCustomerForm={editCustomerForm}
+    setEditCustomerForm={setEditCustomerForm}
+    customerActionLoading={customerActionLoading}
+    handleEditCustomer={handleEditCustomer}
+    setEditingCustomer={setEditingCustomer}
+    startEditingCustomer={startEditingCustomer}
+    handleDeleteCustomer={handleDeleteCustomer}
+    />
+
+   ) : activePage === 'Purchases' ? (
+  <Purchases
+    businesses={businesses}
+    customers={customers}
+    purchases={purchases}
+    purchaseLoading={purchaseLoading}
+    purchaseError={purchaseError}
+    newPurchase={newPurchase}
+    setNewPurchase={setNewPurchase}
+    purchaseSubmitting={purchaseSubmitting}
+    purchaseMessage={purchaseMessage}
+    handleAddPurchase={handleAddPurchase}
+    editingPurchase={editingPurchase}
+    editPurchaseForm={editPurchaseForm}
+    setEditPurchaseForm={setEditPurchaseForm}
+    purchaseActionLoading={purchaseActionLoading}
+    handleEditPurchase={handleEditPurchase}
+    setEditingPurchase={setEditingPurchase}
+    startEditingPurchase={startEditingPurchase}
+    handleDeletePurchase={handleDeletePurchase}
+  />
+
+   ) : activePage === 'Message Templates' ? (
+  <MessageTemplates
+    businesses={businesses}
+    messageTemplates={messageTemplates}
+    templateLoading={templateLoading}
+    templateError={templateError}
+    newTemplate={newTemplate}
+    setNewTemplate={setNewTemplate}
+    templateSubmitting={templateSubmitting}
+    templateMessage={templateMessage}
+    handleAddTemplate={handleAddTemplate}
+    editingTemplate={editingTemplate}
+    editTemplateForm={editTemplateForm}
+    setEditTemplateForm={setEditTemplateForm}
+    templateActionLoading={templateActionLoading}
+    handleEditTemplate={handleEditTemplate}
+    setEditingTemplate={setEditingTemplate}
+    startEditingTemplate={startEditingTemplate}
+    handleDeleteTemplate={handleDeleteTemplate}
+  />
+) : activePage === 'Campaigns' ? (
+  <Campaigns
+    businesses={businesses}
+    messageTemplates={messageTemplates}
+    campaigns={campaigns}
+    campaignLoading={campaignLoading}
+    campaignError={campaignError}
+    newCampaign={newCampaign}
+    setNewCampaign={setNewCampaign}
+    campaignSubmitting={campaignSubmitting}
+    campaignMessage={campaignMessage}
+    handleAddCampaign={handleAddCampaign}
+    editingCampaign={editingCampaign}
+    editCampaignForm={editCampaignForm}
+    setEditCampaignForm={setEditCampaignForm}
+    campaignActionLoading={campaignActionLoading}
+    handleEditCampaign={handleEditCampaign}
+    setEditingCampaign={setEditingCampaign}
+    startEditingCampaign={startEditingCampaign}
+    handleDeleteCampaign={handleDeleteCampaign}
+  />
+
+    ) : activePage === 'Review Automation' ? (
+  <ReviewAutomation
+    businesses={businesses}
+    messageTemplates={messageTemplates}
+    selectedReviewBusinessId={
+      selectedReviewBusinessId
     }
-    required
-  >
-    <option value="">Select a category</option>
-    <option value="review">Review</option>
-    <option value="promotional">Promotional</option>
-    <option value="transactional">Transactional</option>
-    <option value="other">Other</option>
-  </select>
-</label>
-
-              <label>
-                Message
-
-                <textarea
-                  value={newTemplate.message}
-                  onChange={(event) =>
-                    setNewTemplate({
-                      ...newTemplate,
-                      message:
-                        event.target.value,
-                    })
-                  }
-                  placeholder="Enter your message template"
-                  rows="5"
-                  required
-                />
-              </label>
-
-              <button
-                type="submit"
-                disabled={templateSubmitting}
-              >
-                {templateSubmitting
-                  ? 'Creating...'
-                  : 'Create Template'}
-              </button>
-
-              {templateMessage && (
-                <p>{templateMessage}</p>
-              )}
-            </form>
-                        {editingTemplate && (
-              <form
-                className="customer-form"
-                onSubmit={handleEditTemplate}
-              >
-                <h3>Edit Message Template</h3>
-
-                <label>
-                  Template Name
-                  <input
-                    type="text"
-                    value={editTemplateForm.name}
-                    onChange={(event) =>
-                      setEditTemplateForm({
-                        ...editTemplateForm,
-                        name: event.target.value,
-                      })
-                    }
-                    required
-                  />
-                </label>
-
-                <label>
-                  Category
-                  <select
-                    value={editTemplateForm.category}
-                    onChange={(event) =>
-                      setEditTemplateForm({
-                        ...editTemplateForm,
-                        category: event.target.value,
-                      })
-                    }
-                    required
-                  >
-                    <option value="">
-                      Select a category
-                    </option>
-                    <option value="review">
-                      Review
-                    </option>
-                    <option value="promotional">
-                      Promotional
-                    </option>
-                    <option value="transactional">
-                      Transactional
-                    </option>
-                    <option value="other">
-                      Other
-                    </option>
-                  </select>
-                </label>
-
-                <label>
-                  Message
-                  <textarea
-                    value={editTemplateForm.message}
-                    onChange={(event) =>
-                      setEditTemplateForm({
-                        ...editTemplateForm,
-                        message: event.target.value,
-                      })
-                    }
-                    rows="5"
-                    required
-                  />
-                </label>
-
-                <div className="form-actions">
-                  <button
-                    type="submit"
-                    disabled={templateActionLoading}
-                  >
-                    {templateActionLoading
-                      ? 'Saving...'
-                      : 'Save Changes'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setEditingTemplate(null)
-                    }
-                    disabled={templateActionLoading}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {templateLoading ? (
-              <p>
-                Loading message templates...
-              </p>
-            ) : templateError ? (
-              <p className="error-message">
-                {templateError}
-              </p>
-            ) : messageTemplates.length === 0 ? (
-              <p>No message templates found.</p>
-            ) : (
-              <div className="table-container">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Template Name</th>
-                      <th>Business</th>
-                      <th>Category</th>
-                      <th>Message</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {messageTemplates.map((template) => (
-                        <tr key={template.id}>
-                          <td>{template.name}</td>
-
-                          <td>
-                            {template.businessName}
-                          </td>
-
-                          <td>
-                            {template.category}
-                          </td>
-
-                          <td>
-                            {template.message}
-                          </td>
-                          
-     <td>
-  <button
-    type="button"
-    onClick={() => startEditingTemplate(template)}
-  >
-    Edit
-  </button>
-
-  <button
-    type="button"
-    onClick={() => handleDeleteTemplate(template)}
-    disabled={templateActionLoading}
-  >
-    Delete
-  </button>
-</td>
-                        </tr>
-                      )
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-             /* ======================================================
-           CAMPAIGNS
-        ====================================================== */
-
-        ) : activePage === 'Campaigns' ? (
-          <section className="panel">
-            <div className="panel-heading">
-              <div>
-                <h3>Campaigns</h3>
-                <p>
-                  Create and manage customer messaging campaigns.
-                </p>
-              </div>
-            </div>
-
-            <form
-              className="customer-form"
-              onSubmit={handleAddCampaign}
-            >
-              <h3>Add Campaign</h3>
-
-              <label>
-                Business
-
-                <select
-                  value={newCampaign.business_id}
-                  onChange={(event) =>
-                    setNewCampaign({
-                      ...newCampaign,
-                      business_id:
-                        event.target.value,
-                      template_id: '',
-                    })
-                  }
-                  required
-                >
-                  <option value="">
-                    Select a business
-                  </option>
-
-                  {businesses.map((business) => (
-                    <option
-                      key={business.id}
-                      value={business.id}
-                    >
-                      {business.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Campaign Name
-
-                <input
-                  type="text"
-                  value={newCampaign.name}
-                  onChange={(event) =>
-                    setNewCampaign({
-                      ...newCampaign,
-                      name: event.target.value,
-                    })
-                  }
-                  placeholder="Example: Diwali Promotion"
-                  required
-                />
-              </label>
-
-              <label>
-                Message Template
-
-                <select
-                  value={newCampaign.template_id}
-                  onChange={(event) =>
-                    setNewCampaign({
-                      ...newCampaign,
-                      template_id:
-                        event.target.value,
-                    })
-                  }
-                  disabled={!newCampaign.business_id}
-                  required
-                >
-                  <option value="">
-                    Select a template
-                  </option>
-
-                  {messageTemplates
-                    .filter(
-                      (template) =>
-                        template.business_id ===
-                        newCampaign.business_id
-                    )
-                    .map((template) => (
-                      <option
-                        key={template.id}
-                        value={template.id}
-                      >
-                        {template.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-
-              <label>
-                Status
-
-                <select
-                  value={newCampaign.status}
-                  onChange={(event) =>
-                    setNewCampaign({
-                      ...newCampaign,
-                      status: event.target.value,
-                      scheduled_at:
-                        event.target.value ===
-                        'scheduled'
-                          ? newCampaign.scheduled_at
-                          : '',
-                    })
-                  }
-                  required
-                >
-                  <option value="draft">
-                    Draft
-                  </option>
-                  <option value="scheduled">
-                    Scheduled
-                  </option>
-                </select>
-              </label>
-
-              {newCampaign.status === 'scheduled' && (
-                <label>
-                  Scheduled Date & Time
-
-                  <input
-                    type="datetime-local"
-                    value={
-                      newCampaign.scheduled_at
-                    }
-                    onChange={(event) =>
-                      setNewCampaign({
-                        ...newCampaign,
-                        scheduled_at:
-                          event.target.value,
-                      })
-                    }
-                    required
-                  />
-                </label>
-              )}
-
-              <button
-                type="submit"
-                disabled={campaignSubmitting}
-              >
-                {campaignSubmitting
-                  ? 'Creating...'
-                  : 'Create Campaign'}
-              </button>
-
-              {campaignMessage && (
-                <p>{campaignMessage}</p>
-              )}
-            </form>
-            {editingCampaign && (
-  <form
-    className="customer-form"
-    onSubmit={handleEditCampaign}
-  >
-    <h3>Edit Campaign</h3>
-
-    <label>
-      Campaign Name
-
-      <input
-        type="text"
-        value={editCampaignForm.name}
-        onChange={(event) =>
-          setEditCampaignForm({
-            ...editCampaignForm,
-            name: event.target.value,
-          })
-        }
-        required
-      />
-    </label>
-
-    <label>
-      Message Template
-
-      <select
-        value={editCampaignForm.template_id}
-        onChange={(event) =>
-          setEditCampaignForm({
-            ...editCampaignForm,
-            template_id: event.target.value,
-          })
-        }
-        required
-      >
-        <option value="">
-          Select a template
-        </option>
-
-        {messageTemplates
-          .filter(
-            (template) =>
-              template.business_id ===
-              editingCampaign.business_id
-          )
-          .map((template) => (
-            <option
-              key={template.id}
-              value={template.id}
-            >
-              {template.name}
-            </option>
-          ))}
-      </select>
-    </label>
-
-    <label>
-      Status
-
-      <select
-        value={editCampaignForm.status}
-        onChange={(event) =>
-          setEditCampaignForm({
-            ...editCampaignForm,
-            status: event.target.value,
-            scheduled_at:
-              event.target.value === 'scheduled'
-                ? editCampaignForm.scheduled_at
-                : '',
-          })
-        }
-        required
-      >
-        <option value="draft">Draft</option>
-        <option value="scheduled">Scheduled</option>
-        <option value="running">Running</option>
-        <option value="completed">Completed</option>
-        <option value="cancelled">Cancelled</option>
-      </select>
-    </label>
-
-    {editCampaignForm.status === 'scheduled' && (
-      <label>
-        Scheduled Date & Time
-
-        <input
-          type="datetime-local"
-          value={editCampaignForm.scheduled_at}
-          onChange={(event) =>
-            setEditCampaignForm({
-              ...editCampaignForm,
-              scheduled_at: event.target.value,
-            })
-          }
-          required
-        />
-      </label>
-    )}
-
-    <div className="form-actions">
-      <button
-        type="submit"
-        disabled={campaignActionLoading}
-      >
-        {campaignActionLoading
-          ? 'Saving...'
-          : 'Save Changes'}
-      </button>
-
-      <button
-        type="button"
-        onClick={() => setEditingCampaign(null)}
-        disabled={campaignActionLoading}
-      >
-        Cancel
-      </button>
-    </div>
-  </form>
-)}
-
-            {campaignLoading ? (
-              <p>Loading campaigns...</p>
-            ) : campaignError ? (
-              <p className="error-message">
-                {campaignError}
-              </p>
-            ) : campaigns.length === 0 ? (
-              <p>No campaigns found.</p>
-            ) : (
-              <div className="table-container">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Campaign Name</th>
-                      <th>Business</th>
-                      <th>Status</th>
-                      <th>Scheduled At</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {campaigns.map((campaign) => (
-                      <tr key={campaign.id}>
-                        <td>{campaign.name}</td>
-
-                        <td>
-                          {campaign.businessName}
-                        </td>
-
-                        <td>{campaign.status}</td>
-
-                        <td>
-                          {campaign.scheduled_at
-                            ? new Date(
-                                campaign.scheduled_at
-                              ).toLocaleString()
-                            : '-'}
-                        </td>
-
-<td>
-  <button
-    type="button"
-    onClick={() => startEditingCampaign(campaign)}
-    disabled={campaignActionLoading}
-  >
-    Edit
-  </button>
-
-  <button
-    type="button"
-    onClick={() => handleDeleteCampaign(campaign)}
-    disabled={campaignActionLoading}
-  >
-    Delete
-  </button>
-</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-        /* ======================================================
-           OTHER PLACEHOLDER PAGES
-        ====================================================== */
-
-        ) : activePage === 'Review Automation' ? (
-  <section className="panel">
-    <div className="panel-heading">
-      <div>
-        <h2>Review Automation</h2>
-        <p>
-          Automatically request customer reviews after a purchase.
-        </p>
-      </div>
-    </div>
-
-    {reviewAutomationLoading ? (
-      <p>Loading review automation...</p>
-    ) : reviewAutomationError ? (
-      <p className="error-message">
-        {reviewAutomationError}
-      </p>
-    ) : (
-    <form onSubmit={handleSaveReviewAutomation}>
-        <div className="form-group">
-          <label>Business</label>
-
-          <select
-            value={selectedReviewBusinessId}
-            onChange={(event) =>
-              setSelectedReviewBusinessId(
-                event.target.value
-              )
-            }
-          >
-            <option value="">
-              Select Business
-            </option>
-
-            {businesses.map((business) => (
-              <option
-                key={business.id}
-                value={business.id}
-              >
-                {business.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {selectedReviewBusinessId && (
-          <>
-            <div className="form-group">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={reviewForm.enabled}
-                  onChange={(event) =>
-                    setReviewForm({
-                      ...reviewForm,
-                      enabled:
-                        event.target.checked,
-                    })
-                  }
-                />
-                {' '}
-                Enable Review Automation
-              </label>
-            </div>
-
-            <div className="form-group">
-              <label>Delay (minutes)</label>
-
-              <input
-                type="number"
-                min="0"
-                value={reviewForm.delay_minutes}
-                onChange={(event) =>
-                  setReviewForm({
-                    ...reviewForm,
-                    delay_minutes:
-                      Number(event.target.value),
-                  })
-                }
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Review Message Template</label>
-
-              <select
-                value={reviewForm.template_id}
-                onChange={(event) =>
-                  setReviewForm({
-                    ...reviewForm,
-                    template_id:
-                      event.target.value,
-                  })
-                }
-              >
-                <option value="">
-                  Select Review Template
-                </option>
-
-                {messageTemplates
-                  .filter(
-                    (template) =>
-                      template.business_id ===
-                        selectedReviewBusinessId &&
-                      template.category ===
-                        'review'
-                  )
-                  .map((template) => (
-                    <option
-                      key={template.id}
-                      value={template.id}
-                    >
-                      {template.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-
-            {reviewMessage && (
-              <p>{reviewMessage}</p>
-            )}
-
-            <button
-              type="submit"
-              className="primary-button"
-              disabled={reviewSubmitting}
-            >
-              {reviewSubmitting
-                ? 'Saving...'
-                : 'Save Automation'}
-            </button>
-          </>
-        )}
-      </form>
-    )}
-  </section>
-
+    setSelectedReviewBusinessId={
+      setSelectedReviewBusinessId
+    }
+    reviewForm={reviewForm}
+    setReviewForm={setReviewForm}
+    reviewAutomationLoading={
+      reviewAutomationLoading
+    }
+    reviewAutomationError={
+      reviewAutomationError
+    }
+    reviewMessage={reviewMessage}
+    reviewSubmitting={reviewSubmitting}
+    handleSaveReviewAutomation={
+      handleSaveReviewAutomation
+    }
+  />
+
+  ) : activePage === 'Appointments' ? (
+  <Appointments
+    businesses={businesses}
+    customers={customers}
+    messageTemplates={messageTemplates}
+    appointments={appointments}
+    appointmentLoading={appointmentLoading}
+    appointmentError={appointmentError}
+    newAppointment={newAppointment}
+    setNewAppointment={setNewAppointment}
+    appointmentSubmitting={appointmentSubmitting}
+    appointmentMessage={appointmentMessage}
+    handleAddAppointment={handleAddAppointment}
+    editingAppointment={editingAppointment}
+    editAppointmentForm={editAppointmentForm}
+    setEditAppointmentForm={setEditAppointmentForm}
+    appointmentActionLoading={appointmentActionLoading}
+    handleEditAppointment={handleEditAppointment}
+    setEditingAppointment={setEditingAppointment}
+    startEditingAppointment={startEditingAppointment}
+    handleCancelAppointment={handleCancelAppointment}
+  />
 ) : activePage === 'Messages' ? (
-  <section className="panel">
-    <div className="panel-heading">
-      <div>
-        <h2>Messages</h2>
-        <p>View messages sent through your campaigns.</p>
-      </div>
-    </div>
+  <Messages
+    messages={messages}
+    messageLoading={messageLoading}
+    messageError={messageError}
+  />
 
-    {messageLoading ? (
-      <p>Loading messages...</p>
-    ) : messageError ? (
-      <p className="error-message">{messageError}</p>
-    ) : messages.length === 0 ? (
-      <p>No messages found.</p>
-    ) : (
-      <div className="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Business</th>
-              <th>Customer</th>
-              <th>Message</th>
-              <th>Status</th>
-              <th>Scheduled At</th>
-              <th>Sent At</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {messages.map((message) => (
-              <tr key={message.id}>
-                <td>{message.businessName}</td>
-                <td>{message.customerName}</td>
-                <td>{message.message_text}</td>
-                <td>{message.status}</td>
-                <td>
-                  {message.scheduled_at
-                    ? new Date(
-                        message.scheduled_at
-                      ).toLocaleString()
-                    : '-'}
-                </td>
-                <td>
-                  {message.sent_at
-                    ? new Date(
-                        message.sent_at
-                      ).toLocaleString()
-                    : '-'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )}
-  </section>
 ) : (
   <section className="placeholder-page">
     <div className="placeholder-icon">

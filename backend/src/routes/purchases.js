@@ -298,6 +298,7 @@ export function createPurchasesRouter({
         business_id: purchase.business_id,
         customer_id: purchase.customer_id,
         campaign_id: null,
+       purchase_id: purchase.id,
         template_id: template.id,
         message_text: messageText,
         status: 'queued',

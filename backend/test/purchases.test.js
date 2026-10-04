@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createApp } from '../src/app.js';
+import { bypassAuth } from './authTestHelper.js';
 
 const BUSINESS_ID = '96a26c1b-eae8-4cf2-bfe1-beba2827461d';
 const OTHER_BUSINESS_ID = 'f3d24e3c-3e8c-4732-8224-3e71e1b73e62';
@@ -186,6 +187,7 @@ async function withApi(callback, options = {}) {
 
   const app = createApp({
     businessService: createFakeBusinessService(),
+    authMiddleware: bypassAuth,
     customerService: createFakeCustomerService({
       consentGiven: options.consentGiven ?? true,
     }),

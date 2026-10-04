@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import { createCustomerService } from '../services/customers.js';
+import { createPurchaseService } from '../services/purchases.js';
+import { createMessageService } from '../services/messages.js';
 import { createBusinessService } from '../services/businesses.js';
 import { createMessageTemplateService } from '../services/messageTemplates.js';
 import { createReviewAutomationService } from '../services/reviewAutomations.js';
@@ -19,12 +22,18 @@ export function createReviewAutomationsRouter({
   reviewAutomationService,
   businessService,
   messageTemplateService,
+  customerService,
+  purchaseService,
+  messageService,
 } = {}) {
   const router = Router();
 
-  let automations = reviewAutomationService;
-  let businesses = businessService;
-  let templates = messageTemplateService;
+let automations = reviewAutomationService;
+let businesses = businessService;
+let templates = messageTemplateService;
+let customers = customerService;
+let purchases = purchaseService;
+let messages = messageService;
 
   const getAutomations = () =>
     (automations ??= createReviewAutomationService());
@@ -34,6 +43,15 @@ export function createReviewAutomationsRouter({
 
   const getTemplates = () =>
     (templates ??= createMessageTemplateService());
+
+    const getCustomers = () =>
+    (customers ??= createCustomerService());
+
+  const getPurchases = () =>
+    (purchases ??= createPurchaseService());
+
+  const getMessages = () =>
+    (messages ??= createMessageService());
 
   async function validateParents(businessId, templateId, response) {
     const business = await getBusinesses().findById(businessId);
@@ -97,6 +115,332 @@ export function createReviewAutomationsRouter({
     return error
       ? databaseError(response, error)
       : response.status(200).json({ data });
+  });
+
+    // List customers, purchases, and review-request history
+  // for the selected business.
+  router.get('/selected-customers', async (request, response) => {
+    const businessId = request.query.business_id;
+
+    if (!validId(businessId)) {
+      return response.status(400).json({
+        error: 'business_id query parameter must be a valid UUID.',
+      });
+    }
+
+    if (!(await validateParents(businessId, null, response))) {
+      return undefined;
+    }
+
+    const [customerResult, purchaseResult, messageResult] =
+      await Promise.all([
+        getCustomers().listByBusinessId(businessId),
+        getPurchases().list({ businessId }),
+        getMessages().list({ businessId }),
+      ]);
+
+    if (
+      customerResult.error ||
+      purchaseResult.error ||
+      messageResult.error
+    ) {
+      return databaseError(
+        response,
+        customerResult.error ||
+          purchaseResult.error ||
+          messageResult.error
+      );
+    }
+
+    const customers = customerResult.data ?? [];
+    const purchases = purchaseResult.data ?? [];
+    const messages = messageResult.data ?? [];
+
+    const purchasesByCustomer = new Map();
+
+    for (const purchase of purchases) {
+      const customerPurchases =
+        purchasesByCustomer.get(purchase.customer_id) ?? [];
+
+      customerPurchases.push(purchase);
+      purchasesByCustomer.set(
+        purchase.customer_id,
+        customerPurchases
+      );
+    }
+
+    const reviewMessagesByPurchase = new Map();
+
+    for (const message of messages) {
+      if (!message.purchase_id) continue;
+
+      reviewMessagesByPurchase.set(
+        message.purchase_id,
+        message
+      );
+    }
+
+    const data = customers.map((customer) => {
+      const customerPurchases =
+        purchasesByCustomer.get(customer.id) ?? [];
+
+      return {
+        ...customer,
+        purchase_count: customerPurchases.length,
+        purchases: customerPurchases.map((purchase) => ({
+          ...purchase,
+          review_request:
+            reviewMessagesByPurchase.get(purchase.id) ?? null,
+        })),
+      };
+    });
+
+    return response.status(200).json({ data });
+  });
+
+    // Schedule review requests for selected customers.
+  router.post('/selected-requests', async (request, response) => {
+    const {
+      business_id: businessId,
+      customer_ids: customerIds,
+      template_id: templateId,
+      delay_minutes: delayMinutes = 120,
+    } = request.body ?? {};
+
+    if (!validId(businessId)) {
+      return response.status(400).json({
+        error: 'business_id must be a valid UUID.',
+      });
+    }
+
+    if (
+      !Array.isArray(customerIds) ||
+      customerIds.length === 0 ||
+      !customerIds.every(validId)
+    ) {
+      return response.status(400).json({
+        error: 'customer_ids must be a non-empty array of valid UUIDs.',
+      });
+    }
+
+    if (!validId(templateId)) {
+      return response.status(400).json({
+        error: 'template_id must be a valid UUID.',
+      });
+    }
+
+    if (
+      !Number.isInteger(delayMinutes) ||
+      delayMinutes < 0
+    ) {
+      return response.status(400).json({
+        error: 'delay_minutes must be a non-negative integer.',
+      });
+    }
+
+    const businessResult =
+      await getBusinesses().findById(businessId);
+
+    if (businessResult.error) {
+      return databaseError(response, businessResult.error);
+    }
+
+    const business = businessResult.data;
+
+    if (!business) {
+      return response.status(404).json({
+        error: 'Business not found.',
+      });
+    }
+
+    if (!business.google_review_link) {
+      return response.status(400).json({
+        error: 'This business does not have a Google review link.',
+      });
+    }
+
+    const templateResult =
+      await getTemplates().findById(templateId);
+
+    if (templateResult.error) {
+      return databaseError(response, templateResult.error);
+    }
+
+    const template = templateResult.data;
+
+    if (
+      !template ||
+      template.business_id !== businessId ||
+      template.category !== 'review' ||
+      typeof template.message !== 'string'
+    ) {
+      return response.status(400).json({
+        error: 'Select a valid review template for this business.',
+      });
+    }
+
+    const [
+      customerResult,
+      purchaseResult,
+      messageResult,
+    ] = await Promise.all([
+      getCustomers().listByBusinessId(businessId),
+      getPurchases().list({ businessId }),
+      getMessages().list({ businessId }),
+    ]);
+
+    if (
+      customerResult.error ||
+      purchaseResult.error ||
+      messageResult.error
+    ) {
+      return databaseError(
+        response,
+        customerResult.error ||
+          purchaseResult.error ||
+          messageResult.error
+      );
+    }
+
+    const selectedIds = [...new Set(customerIds)];
+    const customerList = customerResult.data ?? [];
+    const purchasesList = purchaseResult.data ?? [];
+    const messageList = messageResult.data ?? [];
+
+    const customerMap = new Map(
+      customerList.map((customer) => [customer.id, customer])
+    );
+
+    if (selectedIds.some((id) => !customerMap.has(id))) {
+      return response.status(400).json({
+        error: 'One or more selected customers do not belong to this business.',
+      });
+    }
+
+    const purchasesByCustomer = new Map();
+
+    for (const purchase of purchasesList) {
+      const customerPurchases =
+        purchasesByCustomer.get(purchase.customer_id) ?? [];
+
+      customerPurchases.push(purchase);
+      purchasesByCustomer.set(
+        purchase.customer_id,
+        customerPurchases
+      );
+    }
+
+    const requestedPurchaseIds = new Set(
+      messageList
+        .filter((message) => message.purchase_id)
+        .map((message) => message.purchase_id)
+    );
+
+    const scheduledAt = new Date(
+      Date.now() + delayMinutes * 60_000
+    ).toISOString();
+
+    const results = [];
+
+    for (const customerId of selectedIds) {
+      const customer = customerMap.get(customerId);
+
+      if (!customer.consent_given) {
+        results.push({
+          customerId,
+          status: 'skipped_no_consent',
+        });
+        continue;
+      }
+
+      const customerPurchases =
+        purchasesByCustomer.get(customerId) ?? [];
+
+      customerPurchases.sort((a, b) =>
+        String(b.purchase_date).localeCompare(
+          String(a.purchase_date)
+        )
+      );
+
+      const purchase = customerPurchases[0];
+
+      if (!purchase) {
+        results.push({
+          customerId,
+          status: 'skipped_no_purchase',
+        });
+        continue;
+      }
+
+      if (requestedPurchaseIds.has(purchase.id)) {
+        results.push({
+          customerId,
+          purchaseId: purchase.id,
+          status: 'already_requested',
+        });
+        continue;
+      }
+
+      const variables = {
+        customer_name: customer.name ?? '',
+        business_name: business.name ?? '',
+        review_link: business.google_review_link,
+        product_name: purchase.product_name ?? '',
+        purchase_date: purchase.purchase_date ?? '',
+      };
+
+      const messageText = template.message.replace(
+        /\{\{\s*(customer_name|business_name|review_link|product_name|purchase_date)\s*\}\}/g,
+        (_match, variable) => variables[variable]
+      );
+
+      const messageResult = await getMessages().create({
+        business_id: businessId,
+        customer_id: customerId,
+        campaign_id: null,
+        purchase_id: purchase.id,
+        template_id: template.id,
+        message_text: messageText,
+        status: 'queued',
+        scheduled_at: scheduledAt,
+      });
+
+      if (messageResult.error) {
+        if (messageResult.error.code === '23505') {
+          results.push({
+            customerId,
+            purchaseId: purchase.id,
+            status: 'already_requested',
+          });
+          continue;
+        }
+
+        console.error(
+          'Unable to queue selected review request:',
+          messageResult.error
+        );
+
+        results.push({
+          customerId,
+          purchaseId: purchase.id,
+          status: 'error',
+        });
+        continue;
+      }
+
+      // Prevent another selected customer entry from queueing
+      // the same purchase during this request.
+      requestedPurchaseIds.add(purchase.id);
+
+      results.push({
+        customerId,
+        purchaseId: purchase.id,
+        messageId: messageResult.data.id,
+        status: 'queued',
+      });
+    }
+
+    return response.status(201).json({ data: results });
   });
 
   router.get('/:id', async (request, response) => {

@@ -1,6 +1,7 @@
 
 import cors from 'cors';
 import express from 'express';
+import { requireAuth } from './middleware/auth.js';
 import { createBusinessesRouter } from './routes/businesses.js';
 import { createCustomersRouter } from './routes/customers.js';
 import { createPurchasesRouter } from './routes/purchases.js';
@@ -8,6 +9,7 @@ import { createMessageTemplatesRouter } from './routes/messageTemplates.js';
 import { createCampaignsRouter } from './routes/campaigns.js';
 import { createMessagesRouter } from './routes/messages.js';
 import { createReviewAutomationsRouter } from './routes/reviewAutomations.js';
+import { createAppointmentsRouter } from './routes/Appointments.js';
 
 export function createApp({
   businessService,
@@ -17,6 +19,9 @@ export function createApp({
   campaignService,
   messageService,
   reviewAutomationService,
+  appointmentService,
+  authMiddleware = requireAuth,
+
 } = {}) {
   const app = express();
 
@@ -26,6 +31,7 @@ export function createApp({
   app.get('/health', (_request, response) => {
     response.status(200).json({ status: 'ok' });
   });
+  app.use(authMiddleware);
 
   app.use('/businesses', createBusinessesRouter({ businessService }));
 
@@ -77,6 +83,16 @@ export function createApp({
       businessService,
       messageTemplateService,
       reviewAutomationService,
+    })
+  );
+
+    app.use(
+    '/appointments',
+    createAppointmentsRouter({
+      appointmentService,
+      businessService,
+      customerService,
+      messageTemplateService,
     })
   );
 
