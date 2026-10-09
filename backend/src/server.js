@@ -4,10 +4,19 @@ import { createApp } from './app.js';
 import { createScheduledMessageProcessor } from './services/scheduledMessageProcessor.js';
 import { createScheduledCampaignProcessor } from './services/scheduledCampaignProcessor.js';
 import { createScheduledAppointmentReminderProcessor } from './services/scheduledAppointmentReminderProcessor.js';
-
+import { createClient } from '@supabase/supabase-js';
+import { getSupabaseConfig } from './config/env.js';
 
 const port = Number.parseInt(process.env.PORT ?? '3000', 10);
-const app = createApp();
+const { url, serviceRoleKey } = getSupabaseConfig();
+
+const supabaseClient = createClient(
+  url,
+  serviceRoleKey
+);
+const app = createApp({
+  supabaseClient,
+});
 
 const messageProcessor = createScheduledMessageProcessor();
 const campaignProcessor =

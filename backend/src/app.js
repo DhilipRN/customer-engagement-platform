@@ -10,6 +10,7 @@ import { createCampaignsRouter } from './routes/campaigns.js';
 import { createMessagesRouter } from './routes/messages.js';
 import { createReviewAutomationsRouter } from './routes/reviewAutomations.js';
 import { createAppointmentsRouter } from './routes/Appointments.js';
+import { createUserProfilesRouter } from './routes/userProfiles.js';
 
 export function createApp({
   businessService,
@@ -20,6 +21,7 @@ export function createApp({
   messageService,
   reviewAutomationService,
   appointmentService,
+  supabaseClient,
   authMiddleware = requireAuth,
 
 } = {}) {
@@ -95,6 +97,11 @@ export function createApp({
       messageTemplateService,
     })
   );
+
+  app.use(
+  '/user-profiles',
+  createUserProfilesRouter({ supabaseClient })
+);
 
   app.use((error, _request, response, _next) => {
     if (error instanceof SyntaxError && 'body' in error) {
