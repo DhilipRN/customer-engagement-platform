@@ -76,12 +76,15 @@ function createFakePurchaseService() {
       };
     },
 
-    async findById(id) {
-      return {
-        data: purchases.find((purchase) => purchase.id === id) ?? null,
-        error: null,
-      };
-    },
+    async findById(id, businessId = null) {
+  return {
+    data: purchases.find((purchase) => (
+      purchase.id === id &&
+      (!businessId || purchase.business_id === businessId)
+    )) ?? null,
+    error: null,
+  };
+},
 
     async create(values) {
       const purchase = {
@@ -93,23 +96,29 @@ function createFakePurchaseService() {
       return { data: purchase, error: null };
     },
 
-    async update(id, values) {
-      const purchase = purchases.find((item) => item.id === id);
+async update(id, values, businessId = null) {
+  const purchase = purchases.find((item) => (
+    item.id === id &&
+    (!businessId || item.business_id === businessId)
+  ));
 
-      if (!purchase) return { data: null, error: null };
+  if (!purchase) return { data: null, error: null };
 
-      Object.assign(purchase, values);
-      return { data: purchase, error: null };
-    },
+  Object.assign(purchase, values);
+  return { data: purchase, error: null };
+},
 
-    async remove(id) {
-      const index = purchases.findIndex((purchase) => purchase.id === id);
+    async remove(id, businessId = null) {
+  const index = purchases.findIndex((purchase) => (
+    purchase.id === id &&
+    (!businessId || purchase.business_id === businessId)
+  ));
 
-      if (index === -1) return { data: null, error: null };
+  if (index === -1) return { data: null, error: null };
 
-      return { data: purchases.splice(index, 1)[0], error: null };
-    },
-  };
+  return { data: purchases.splice(index, 1)[0], error: null };
+},
+  }
 }
 
 function createFakeReviewAutomationService({

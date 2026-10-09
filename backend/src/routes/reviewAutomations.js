@@ -5,6 +5,7 @@ import { createMessageService } from '../services/messages.js';
 import { createBusinessService } from '../services/businesses.js';
 import { createMessageTemplateService } from '../services/messageTemplates.js';
 import { createReviewAutomationService } from '../services/reviewAutomations.js';
+import { requireBusinessAccess } from '../middleware/auth.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -96,7 +97,7 @@ let messages = messageService;
     return true;
   }
 
-  router.get('/', async (request, response) => {
+  router.get('/', requireBusinessAccess, async (request, response) => {
     const businessId = request.query.business_id;
 
     if (!validId(businessId)) {
@@ -119,7 +120,7 @@ let messages = messageService;
 
     // List customers, purchases, and review-request history
   // for the selected business.
-  router.get('/selected-customers', async (request, response) => {
+  router.get('/selected-customers', requireBusinessAccess, async (request, response) => {
     const businessId = request.query.business_id;
 
     if (!validId(businessId)) {
@@ -199,7 +200,7 @@ let messages = messageService;
   });
 
     // Schedule review requests for selected customers.
-  router.post('/selected-requests', async (request, response) => {
+  router.post('/selected-requests', requireBusinessAccess, async (request, response) => {
     const {
       business_id: businessId,
       customer_ids: customerIds,
@@ -443,7 +444,7 @@ let messages = messageService;
     return response.status(201).json({ data: results });
   });
 
-  router.get('/:id', async (request, response) => {
+  router.get('/:id', requireBusinessAccess, async (request, response) => {
     if (!validId(request.params.id)) {
       return response.status(400).json({
         error: 'review automation id must be a valid UUID.',
@@ -451,7 +452,10 @@ let messages = messageService;
     }
 
     const { data, error } =
-      await getAutomations().findById(request.params.id);
+      await getAutomations().findById(
+        request.params.id,
+        request.profile?.role === 'client' ? request.profile.business_id : null,
+      );
 
     if (error) {
       return databaseError(response, error);
@@ -464,7 +468,7 @@ let messages = messageService;
         });
   });
 
-  router.post('/', async (request, response) => {
+  router.post('/', requireBusinessAccess, async (request, response) => {
     const {
       business_id,
       enabled,
@@ -522,15 +526,18 @@ let messages = messageService;
       : response.status(201).json({ data });
   });
 
-  router.put('/:id', async (request, response) => {
+  router.put('/:id', requireBusinessAccess, async (request, response) => {
     if (!validId(request.params.id)) {
       return response.status(400).json({
         error: 'review automation id must be a valid UUID.',
       });
     }
 
+    const businessId = request.profile?.role === 'client'
+      ? request.profile.business_id
+      : null;
     const existing =
-      await getAutomations().findById(request.params.id);
+      await getAutomations().findById(request.params.id, businessId);
 
     if (existing.error) {
       return databaseError(response, existing.error);
@@ -602,15 +609,22 @@ let messages = messageService;
     const { data, error } =
       await getAutomations().update(
         request.params.id,
-        values
+        values,
+        businessId,
       );
+
+    if (!data && !error) {
+      return response.status(404).json({
+        error: 'Review automation not found.',
+      });
+    }
 
     return error
       ? databaseError(response, error)
       : response.status(200).json({ data });
   });
 
-  router.delete('/:id', async (request, response) => {
+  router.delete('/:id', requireBusinessAccess, async (request, response) => {
     if (!validId(request.params.id)) {
       return response.status(400).json({
         error: 'review automation id must be a valid UUID.',
@@ -618,7 +632,10 @@ let messages = messageService;
     }
 
     const { data, error } =
-      await getAutomations().remove(request.params.id);
+      await getAutomations().remove(
+        request.params.id,
+        request.profile?.role === 'client' ? request.profile.business_id : null,
+      );
 
     if (error) {
       return databaseError(response, error);

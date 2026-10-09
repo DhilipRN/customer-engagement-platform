@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { createBusinessService } from '../services/businesses.js';
 import { createMessageTemplateService } from '../services/messageTemplates.js';
+import { requireBusinessAccess } from '../middleware/auth.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CATEGORIES = new Set(['review', 'promotional', 'transactional', 'other']);
@@ -106,7 +107,7 @@ export function createMessageTemplatesRouter({ messageTemplateService, businessS
     return true;
   }
 
-  router.get('/', async (request, response) => {
+  router.get('/', requireBusinessAccess, async (request, response) => {
     const { business_id: businessId } = request.query;
     if (!isValidUuid(businessId)) {
       return response.status(400).json({ error: 'business_id query parameter must be a valid UUID.' });
@@ -118,17 +119,20 @@ export function createMessageTemplatesRouter({ messageTemplateService, businessS
     return response.status(200).json({ data });
   });
 
-  router.get('/:id', async (request, response) => {
+  router.get('/:id', requireBusinessAccess, async (request, response) => {
     if (!isValidUuid(request.params.id)) {
       return response.status(400).json({ error: 'message template id must be a valid UUID.' });
     }
-    const { data, error } = await getTemplateService().findById(request.params.id);
+    const { data, error } = await getTemplateService().findById(
+      request.params.id,
+      request.profile?.role === 'client' ? request.profile.business_id : null,
+    );
     if (error) return sendDatabaseError(response, error);
     if (!data) return response.status(404).json({ error: 'Message template not found.' });
     return response.status(200).json({ data });
   });
 
-  router.post('/', async (request, response) => {
+  router.post('/', requireBusinessAccess, async (request, response) => {
     const { errors, values } = validateTemplate(request.body ?? {}, { creating: true });
     if (errors.length) return response.status(400).json({ errors });
     if (!(await findBusiness(values.business_id, response))) return undefined;
@@ -138,7 +142,7 @@ export function createMessageTemplatesRouter({ messageTemplateService, businessS
     return response.status(201).json({ data });
   });
 
-  router.put('/:id', async (request, response) => {
+  router.put('/:id', requireBusinessAccess, async (request, response) => {
     if (!isValidUuid(request.params.id)) {
       return response.status(400).json({ error: 'message template id must be a valid UUID.' });
     }
@@ -146,17 +150,24 @@ export function createMessageTemplatesRouter({ messageTemplateService, businessS
     if (!Object.keys(values).length) errors.push('At least one editable field is required.');
     if (errors.length) return response.status(400).json({ errors });
 
-    const { data, error } = await getTemplateService().update(request.params.id, values);
+    const { data, error } = await getTemplateService().update(
+      request.params.id,
+      values,
+      request.profile?.role === 'client' ? request.profile.business_id : null,
+    );
     if (error) return sendDatabaseError(response, error);
     if (!data) return response.status(404).json({ error: 'Message template not found.' });
     return response.status(200).json({ data });
   });
 
-  router.delete('/:id', async (request, response) => {
+  router.delete('/:id', requireBusinessAccess, async (request, response) => {
     if (!isValidUuid(request.params.id)) {
       return response.status(400).json({ error: 'message template id must be a valid UUID.' });
     }
-    const { data, error } = await getTemplateService().remove(request.params.id);
+    const { data, error } = await getTemplateService().remove(
+      request.params.id,
+      request.profile?.role === 'client' ? request.profile.business_id : null,
+    );
     if (error) return sendDatabaseError(response, error);
     if (!data) return response.status(404).json({ error: 'Message template not found.' });
     return response.status(204).send();

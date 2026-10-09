@@ -60,11 +60,11 @@ function createFakeCustomerService() {
   };
 }
 
-async function withApi(callback) {
+async function withApi(callback, authMiddleware = bypassAuth) {
   const app = createApp({
     businessService: createFakeBusinessService(),
     customerService: createFakeCustomerService(),
-    authMiddleware: bypassAuth,
+    authMiddleware,
   });
   const server = app.listen();
   const { port } = server.address();
@@ -156,4 +156,39 @@ test('Customer API rejects invalid customer identifiers', async () => {
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), { error: 'customer id must be a valid UUID.' });
   });
+});
+
+test('Customer API denies unassigned clients, including ID-based operations', async () => {
+  const unassignedClientAuth = (request, _response, next) => {
+    request.profile = { role: 'client', business_id: null };
+    next();
+  };
+
+  await withApi(async (baseUrl) => {
+    const responses = await Promise.all([
+      fetch(`${baseUrl}/customers?business_id=${BUSINESS_ID}`),
+      fetch(`${baseUrl}/customers/${CUSTOMER_ID}`),
+      fetch(`${baseUrl}/customers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          business_id: BUSINESS_ID,
+          name: 'Unassigned Client',
+          phone: '9876543210',
+          consent_given: true,
+        }),
+      }),
+      fetch(`${baseUrl}/customers/${CUSTOMER_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ consent_given: false }),
+      }),
+      fetch(`${baseUrl}/customers/${CUSTOMER_ID}`, { method: 'DELETE' }),
+    ]);
+
+    assert.deepEqual(
+      responses.map((response) => response.status),
+      [403, 403, 403, 403, 403],
+    );
+  }, unassignedClientAuth);
 });

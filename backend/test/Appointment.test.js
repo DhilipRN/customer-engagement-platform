@@ -18,6 +18,15 @@ const APPOINTMENT_ID =
 const OTHER_BUSINESS_ID =
   '55555555-5555-4555-8555-555555555555';
 
+const OTHER_CUSTOMER_ID =
+  '66666666-6666-4666-8666-666666666666';
+
+const OTHER_TEMPLATE_ID =
+  '77777777-7777-4777-8777-777777777777';
+
+const OTHER_APPOINTMENT_ID =
+  '88888888-8888-4888-8888-888888888888';
+
 const validPayload = {
   business_id: BUSINESS_ID,
   customer_id: CUSTOMER_ID,
@@ -111,7 +120,7 @@ async function withTestServer(
 ) {
  const app = createApp({
   ...createServices(overrides),
-  authMiddleware: bypassAuth,
+  authMiddleware: overrides.authMiddleware ?? bypassAuth,
 });
   const server = app.listen(0,'127.0.0.1');
  
@@ -139,6 +148,54 @@ async function withTestServer(
       });
     });
   }
+}
+
+function createClientAppointmentService() {
+  const rows = [
+    {
+      id: APPOINTMENT_ID,
+      business_id: BUSINESS_ID,
+      customer_id: CUSTOMER_ID,
+      template_id: TEMPLATE_ID,
+      appointment_date: '2026-10-15',
+      appointment_time: '09:30',
+      appointment_type: 'Consultation',
+      status: 'scheduled',
+    },
+    {
+      id: OTHER_APPOINTMENT_ID,
+      business_id: OTHER_BUSINESS_ID,
+      customer_id: OTHER_CUSTOMER_ID,
+      template_id: OTHER_TEMPLATE_ID,
+      appointment_date: '2026-10-16',
+      appointment_time: '10:30',
+      appointment_type: 'Other consultation',
+      status: 'scheduled',
+    },
+  ];
+
+  return {
+    listByBusinessId: async (businessId) => ({
+      data: rows.filter((row) => row.business_id === businessId),
+      error: null,
+    }),
+    findById: async (id, businessId = null) => ({
+      data: rows.find((row) => row.id === id && (!businessId || row.business_id === businessId)) ?? null,
+      error: null,
+    }),
+    create: async (values) => ({
+      data: { id: '99999999-9999-4999-8999-999999999999', ...values },
+      error: null,
+    }),
+    update: async (id, values, businessId = null) => {
+      const row = rows.find((item) => item.id === id && (!businessId || item.business_id === businessId));
+      return { data: row ? { ...row, ...values } : null, error: null };
+    },
+    remove: async (id, businessId = null) => {
+      const index = rows.findIndex((row) => row.id === id && (!businessId || row.business_id === businessId));
+      return { data: index < 0 ? null : rows[index], error: null };
+    },
+  };
 }
 
 test(
@@ -442,6 +499,99 @@ test(
         );
 
         assert.equal(response.status, 204);
+      }
+    );
+  }
+);
+
+test(
+  'Appointments API isolates client access by business',
+  async () => {
+    await withTestServer(
+      {
+        appointmentService: createClientAppointmentService(),
+        businessService: {
+          findById: async (id) => ({
+            data: [BUSINESS_ID, OTHER_BUSINESS_ID].includes(id)
+              ? { id, name: 'Test Business', google_review_link: 'https://example.com/review' }
+              : null,
+            error: null,
+          }),
+        },
+        customerService: {
+          findById: async (id) => ({
+            data: id === CUSTOMER_ID
+              ? { id, business_id: BUSINESS_ID }
+              : id === OTHER_CUSTOMER_ID
+                ? { id, business_id: OTHER_BUSINESS_ID }
+                : null,
+            error: null,
+          }),
+        },
+        messageTemplateService: {
+          findById: async (id) => ({
+            data: id === TEMPLATE_ID
+              ? { id, business_id: BUSINESS_ID }
+              : id === OTHER_TEMPLATE_ID
+                ? { id, business_id: OTHER_BUSINESS_ID }
+                : null,
+            error: null,
+          }),
+        },
+        authMiddleware: (request, _response, next) => {
+          request.profile = { role: 'client', business_id: BUSINESS_ID };
+          next();
+        },
+      },
+      async (baseUrl) => {
+        assert.equal(
+          (await fetch(`${baseUrl}/appointments?business_id=${OTHER_BUSINESS_ID}`)).status,
+          403
+        );
+        assert.equal(
+          (await fetch(`${baseUrl}/appointments/${OTHER_APPOINTMENT_ID}`)).status,
+          404
+        );
+
+        const wrongBusinessCreate = await fetch(`${baseUrl}/appointments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...validPayload, business_id: OTHER_BUSINESS_ID }),
+        });
+        assert.equal(wrongBusinessCreate.status, 403);
+
+        const wrongCustomerCreate = await fetch(`${baseUrl}/appointments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...validPayload, customer_id: OTHER_CUSTOMER_ID }),
+        });
+        assert.equal(wrongCustomerCreate.status, 400);
+
+        const wrongTemplateCreate = await fetch(`${baseUrl}/appointments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...validPayload, template_id: OTHER_TEMPLATE_ID }),
+        });
+        assert.equal(wrongTemplateCreate.status, 400);
+
+        const wrongCustomerUpdate = await fetch(`${baseUrl}/appointments/${APPOINTMENT_ID}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customer_id: OTHER_CUSTOMER_ID }),
+        });
+        assert.equal(wrongCustomerUpdate.status, 400);
+
+        const cancellation = await fetch(`${baseUrl}/appointments/${APPOINTMENT_ID}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'cancelled' }),
+        });
+        assert.equal(cancellation.status, 200);
+
+        assert.equal(
+          (await fetch(`${baseUrl}/appointments/${OTHER_APPOINTMENT_ID}`, { method: 'DELETE' })).status,
+          404
+        );
       }
     );
   }

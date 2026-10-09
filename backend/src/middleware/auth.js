@@ -74,3 +74,56 @@ return next();
     });
   }
 }
+
+export function requireAdmin(request, response, next) {
+  if (!request.profile || request.profile.role !== 'admin') {
+    return response.status(403).json({
+      error: 'Admin access required.',
+    });
+  }
+
+  return next();
+}
+
+export function requireBusinessAccess(request, response, next) {
+  if (!request.profile) {
+    return next();
+  }
+
+  if (request.profile.role === 'admin') {
+    return next();
+  }
+
+  if (request.profile.role === 'client' && !request.profile.business_id) {
+    return response.status(403).json({
+      error: 'A business assignment is required for client access.',
+    });
+  }
+
+  const queryBusinessId = request.query.business_id;
+  const bodyBusinessId = request.body?.business_id;
+
+  if (
+    queryBusinessId &&
+    bodyBusinessId &&
+    queryBusinessId !== bodyBusinessId
+  ) {
+    return response.status(403).json({
+      error: 'Conflicting business identifiers are not allowed.',
+    });
+  }
+
+  const businessId = bodyBusinessId || queryBusinessId;
+
+  if (!businessId) {
+    return next();
+  }
+
+  if (request.profile.business_id !== businessId) {
+    return response.status(403).json({
+      error: 'You do not have access to this business.',
+    });
+  }
+
+  return next();
+}

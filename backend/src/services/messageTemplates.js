@@ -10,25 +10,35 @@ export function createMessageTemplateService(supabaseClient = getSupabaseClient(
         .order('created_at', { ascending: false });
     },
 
-    async findById(id) {
-      return supabaseClient.from('message_templates').select('*').eq('id', id).maybeSingle();
+    async findById(id, businessId = null) {
+      let query = supabaseClient.from('message_templates').select('*').eq('id', id);
+
+      if (businessId) query = query.eq('business_id', businessId);
+
+      return query.maybeSingle();
     },
 
     async create(values) {
       return supabaseClient.from('message_templates').insert(values).select('*').single();
     },
 
-    async update(id, values) {
-      return supabaseClient
+    async update(id, values, businessId = null) {
+      let query = supabaseClient
         .from('message_templates')
         .update(values)
-        .eq('id', id)
-        .select('*')
-        .maybeSingle();
+        .eq('id', id);
+
+      if (businessId) query = query.eq('business_id', businessId);
+
+      return query.select('*').maybeSingle();
     },
 
-    async remove(id) {
-      return supabaseClient.from('message_templates').delete().eq('id', id).select('id').maybeSingle();
+    async remove(id, businessId = null) {
+      let query = supabaseClient.from('message_templates').delete().eq('id', id);
+
+      if (businessId) query = query.eq('business_id', businessId);
+
+      return query.select('id').maybeSingle();
     },
   };
 }

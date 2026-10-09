@@ -5,14 +5,16 @@ import { createApp } from '../src/app.js';
 import { bypassAuth } from './authTestHelper.js';
 
 const BUSINESS_ID = '96a26c1b-eae8-4cf2-bfe1-beba2827461d';
+const OTHER_BUSINESS_ID = 'f3d24e3c-3e8c-4732-8224-3e71e1b73e62';
 const TEMPLATE_ID = '4a9f2baa-eae0-4f7c-b2d4-4d3d2e1cffb8';
 const OTHER_TEMPLATE_ID = '8c144f5c-55c0-4d48-a21c-a3fb3adf2a33';
 const AUTOMATION_ID = 'b5d4484c-5001-4cdc-b276-8ee96715d6b4';
+const OTHER_AUTOMATION_ID = '9c01ac38-6a1b-4b92-93cb-a4e5aa916e61';
 
 function fakeBusinessService() {
   return {
     findById: async (id) => ({
-      data: id === BUSINESS_ID ? { id } : null,
+      data: [BUSINESS_ID, OTHER_BUSINESS_ID].includes(id) ? { id, name: 'Business', google_review_link: 'https://example.com/review' } : null,
       error: null,
     }),
   };
@@ -35,7 +37,7 @@ function fakeTemplateService() {
   };
 }
 
-function fakeReviewAutomationService() {
+function fakeReviewAutomationService({ updateResult } = {}) {
   const rows = [
     {
       id: AUTOMATION_ID,
@@ -43,6 +45,13 @@ function fakeReviewAutomationService() {
       enabled: true,
       delay_minutes: 120,
       template_id: TEMPLATE_ID,
+    },
+    {
+      id: OTHER_AUTOMATION_ID,
+      business_id: OTHER_BUSINESS_ID,
+      enabled: true,
+      delay_minutes: 120,
+      template_id: OTHER_TEMPLATE_ID,
     },
   ];
 
@@ -52,8 +61,8 @@ function fakeReviewAutomationService() {
       error: null,
     }),
 
-    findById: async (id) => ({
-      data: rows.find((row) => row.id === id) ?? null,
+    findById: async (id, businessId = null) => ({
+      data: rows.find((row) => row.id === id && (!businessId || row.business_id === businessId)) ?? null,
       error: null,
     }),
 
@@ -66,8 +75,9 @@ function fakeReviewAutomationService() {
       return { data: row, error: null };
     },
 
-    update: async (id, values) => {
-      const row = rows.find((item) => item.id === id);
+    update: async (id, values, businessId = null) => {
+      if (updateResult) return updateResult;
+      const row = rows.find((item) => item.id === id && (!businessId || item.business_id === businessId));
 
       if (!row) {
         return { data: null, error: null };
@@ -77,8 +87,8 @@ function fakeReviewAutomationService() {
       return { data: row, error: null };
     },
 
-    remove: async (id) => {
-      const index = rows.findIndex((row) => row.id === id);
+    remove: async (id, businessId = null) => {
+      const index = rows.findIndex((row) => row.id === id && (!businessId || row.business_id === businessId));
 
       return {
         data: index < 0 ? null : rows.splice(index, 1)[0],
@@ -88,11 +98,34 @@ function fakeReviewAutomationService() {
   };
 }
 
-async function withApi(callback) {
+async function withClientApi(callback) {
   const server = createApp({
     businessService: fakeBusinessService(),
     messageTemplateService: fakeTemplateService(),
     reviewAutomationService: fakeReviewAutomationService(),
+    customerService: { listByBusinessId: async () => ({ data: [], error: null }) },
+    purchaseService: { list: async () => ({ data: [], error: null }) },
+    messageService: { list: async () => ({ data: [], error: null }) },
+    authMiddleware: (request, _response, next) => {
+      request.profile = { role: 'client', business_id: BUSINESS_ID };
+      next();
+    },
+  }).listen();
+
+  try {
+    await callback(`http://127.0.0.1:${server.address().port}`);
+  } finally {
+    await new Promise((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve()))
+    );
+  }
+}
+
+async function withApi(callback, options = {}) {
+  const server = createApp({
+    businessService: fakeBusinessService(),
+    messageTemplateService: fakeTemplateService(),
+    reviewAutomationService: options.reviewAutomationService ?? fakeReviewAutomationService(options),
     authMiddleware: bypassAuth,
   }).listen();
 
@@ -179,4 +212,55 @@ test('Review Automation API reads and deletes automation', async () => {
 
     assert.equal(missing.status, 404);
   });
+});
+
+test('Review Automation API isolates client access by business', async () => {
+  await withClientApi(async (url) => {
+    assert.equal((await fetch(`${url}/review-automations?business_id=${OTHER_BUSINESS_ID}`)).status, 403);
+    assert.equal((await fetch(`${url}/review-automations/selected-customers?business_id=${OTHER_BUSINESS_ID}`)).status, 403);
+
+    const wrongBusinessSchedule = await fetch(`${url}/review-automations/selected-requests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ business_id: OTHER_BUSINESS_ID, customer_ids: [AUTOMATION_ID], template_id: TEMPLATE_ID }),
+    });
+    assert.equal(wrongBusinessSchedule.status, 403);
+
+    assert.equal((await fetch(`${url}/review-automations/${OTHER_AUTOMATION_ID}`)).status, 404);
+
+    const wrongBusinessCreate = await fetch(`${url}/review-automations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ business_id: OTHER_BUSINESS_ID, template_id: TEMPLATE_ID }),
+    });
+    assert.equal(wrongBusinessCreate.status, 403);
+
+    const wrongTemplateCreate = await fetch(`${url}/review-automations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ business_id: BUSINESS_ID, template_id: OTHER_TEMPLATE_ID }),
+    });
+    assert.equal(wrongTemplateCreate.status, 400);
+
+    const wrongBusinessUpdate = await fetch(`${url}/review-automations/${OTHER_AUTOMATION_ID}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: false }),
+    });
+    assert.equal(wrongBusinessUpdate.status, 404);
+    assert.equal((await fetch(`${url}/review-automations/${OTHER_AUTOMATION_ID}`, { method: 'DELETE' })).status, 404);
+  });
+});
+
+test('Review Automation API returns 404 when an update affects no automation', async () => {
+  await withApi(async (url) => {
+    const response = await fetch(`${url}/review-automations/${AUTOMATION_ID}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: false }),
+    });
+
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: 'Review automation not found.' });
+  }, { updateResult: { data: null, error: null } });
 });

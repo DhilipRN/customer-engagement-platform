@@ -11,12 +11,16 @@ export function createReviewAutomationService(
         .eq('business_id', businessId)
         .maybeSingle(),
 
-    findById: (id) =>
-      supabaseClient
+    findById: (id, businessId = null) => {
+      let query = supabaseClient
         .from('review_automations')
         .select('*')
-        .eq('id', id)
-        .maybeSingle(),
+        .eq('id', id);
+
+      if (businessId) query = query.eq('business_id', businessId);
+
+      return query.maybeSingle();
+    },
 
     create: (values) =>
       supabaseClient
@@ -25,20 +29,26 @@ export function createReviewAutomationService(
         .select('*')
         .single(),
 
-    update: (id, values) =>
-      supabaseClient
+    update: (id, values, businessId = null) => {
+      let query = supabaseClient
         .from('review_automations')
         .update(values)
-        .eq('id', id)
-        .select('*')
-        .maybeSingle(),
+        .eq('id', id);
 
-    remove: (id) =>
-      supabaseClient
+      if (businessId) query = query.eq('business_id', businessId);
+
+      return query.select('*').maybeSingle();
+    },
+
+    remove: (id, businessId = null) => {
+      let query = supabaseClient
         .from('review_automations')
         .delete()
-        .eq('id', id)
-        .select('id')
-        .maybeSingle(),
+        .eq('id', id);
+
+      if (businessId) query = query.eq('business_id', businessId);
+
+      return query.select('id').maybeSingle();
+    },
   };
 }

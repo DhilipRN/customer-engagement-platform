@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { createBusinessService } from '../services/businesses.js';
 import { createCampaignService } from '../services/campaigns.js';
 import { createMessageTemplateService } from '../services/messageTemplates.js';
+import { requireBusinessAccess } from '../middleware/auth.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STATUSES = new Set(['draft', 'scheduled', 'running', 'completed', 'cancelled']);
@@ -69,20 +70,23 @@ export function createCampaignsRouter({ campaignService, businessService, messag
     return true;
   }
 
-  router.get('/', async (request, response) => {
+  router.get('/', requireBusinessAccess, async (request, response) => {
     const businessId = request.query.business_id;
     if (!validId(businessId)) return response.status(400).json({ error: 'business_id query parameter must be a valid UUID.' });
     if (!(await validateParents(businessId, null, response))) return undefined;
     const { data, error } = await getCampaigns().listByBusinessId(businessId);
     return error ? databaseError(response, error) : response.status(200).json({ data });
   });
-  router.get('/:id', async (request, response) => {
+  router.get('/:id', requireBusinessAccess, async (request, response) => {
     if (!validId(request.params.id)) return response.status(400).json({ error: 'campaign id must be a valid UUID.' });
-    const { data, error } = await getCampaigns().findById(request.params.id);
+    const { data, error } = await getCampaigns().findById(
+      request.params.id,
+      request.profile?.role === 'client' ? request.profile.business_id : null,
+    );
     if (error) return databaseError(response, error);
     return data ? response.status(200).json({ data }) : response.status(404).json({ error: 'Campaign not found.' });
   });
-  router.post('/', async (request, response) => {
+  router.post('/', requireBusinessAccess, async (request, response) => {
     const { errors, values } = validateCampaign(request.body ?? {}, { creating: true });
     if (values.status === 'scheduled' && !values.scheduled_at) errors.push('scheduled_at is required when status is scheduled.');
     if (errors.length) return response.status(400).json({ errors });
@@ -90,9 +94,10 @@ export function createCampaignsRouter({ campaignService, businessService, messag
     const { data, error } = await getCampaigns().create(values);
     return error ? databaseError(response, error) : response.status(201).json({ data });
   });
-  router.put('/:id', async (request, response) => {
+  router.put('/:id', requireBusinessAccess, async (request, response) => {
     if (!validId(request.params.id)) return response.status(400).json({ error: 'campaign id must be a valid UUID.' });
-    const existing = await getCampaigns().findById(request.params.id);
+    const businessId = request.profile?.role === 'client' ? request.profile.business_id : null;
+    const existing = await getCampaigns().findById(request.params.id, businessId);
     if (existing.error) return databaseError(response, existing.error);
     if (!existing.data) return response.status(404).json({ error: 'Campaign not found.' });
     const { errors, values } = validateCampaign(request.body ?? {});
@@ -101,12 +106,16 @@ export function createCampaignsRouter({ campaignService, businessService, messag
     if ((values.status ?? existing.data.status) === 'scheduled' && !(values.scheduled_at ?? existing.data.scheduled_at)) errors.push('scheduled_at is required when status is scheduled.');
     if (errors.length) return response.status(400).json({ errors });
     if (values.template_id && !(await validateParents(existing.data.business_id, values.template_id, response))) return undefined;
-    const { data, error } = await getCampaigns().update(request.params.id, values);
+    const { data, error } = await getCampaigns().update(request.params.id, values, businessId);
+    if (!data && !error) return response.status(404).json({ error: 'Campaign not found.' });
     return error ? databaseError(response, error) : response.status(200).json({ data });
   });
-  router.delete('/:id', async (request, response) => {
+  router.delete('/:id', requireBusinessAccess, async (request, response) => {
     if (!validId(request.params.id)) return response.status(400).json({ error: 'campaign id must be a valid UUID.' });
-    const { data, error } = await getCampaigns().remove(request.params.id);
+    const { data, error } = await getCampaigns().remove(
+      request.params.id,
+      request.profile?.role === 'client' ? request.profile.business_id : null,
+    );
     if (error) return databaseError(response, error);
     return data ? response.status(204).send() : response.status(404).json({ error: 'Campaign not found.' });
   });

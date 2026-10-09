@@ -31,16 +31,31 @@ export function createMessageService(client = getSupabaseClient()) {
         .order('scheduled_at', { ascending: true });
     },
 
-    findById: (id) =>
-      client.from('messages').select('*').eq('id', id).maybeSingle(),
+    findById: (id, businessId = null) => {
+      let query = client.from('messages').select('*').eq('id', id);
+
+      if (businessId) query = query.eq('business_id', businessId);
+
+      return query.maybeSingle();
+    },
 
     create: (values) =>
       client.from('messages').insert(values).select('*').single(),
 
-    update: (id, values) =>
-      client.from('messages').update(values).eq('id', id).select('*').maybeSingle(),
+    update: (id, values, businessId = null) => {
+      let query = client.from('messages').update(values).eq('id', id);
 
-    remove: (id) =>
-      client.from('messages').delete().eq('id', id).select('id').maybeSingle(),
+      if (businessId) query = query.eq('business_id', businessId);
+
+      return query.select('*').maybeSingle();
+    },
+
+    remove: (id, businessId = null) => {
+      let query = client.from('messages').delete().eq('id', id);
+
+      if (businessId) query = query.eq('business_id', businessId);
+
+      return query.select('id').maybeSingle();
+    },
   };
 }

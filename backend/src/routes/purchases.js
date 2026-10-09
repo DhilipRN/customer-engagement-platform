@@ -6,6 +6,7 @@ import { createPurchaseService } from '../services/purchases.js';
 import { createReviewAutomationService } from '../services/reviewAutomations.js';
 import { createMessageTemplateService } from '../services/messageTemplates.js';
 import { createMessageService } from '../services/messages.js';
+import { requireBusinessAccess } from '../middleware/auth.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -313,7 +314,7 @@ export function createPurchasesRouter({
     }
   }
 
-  router.get('/', async (request, response) => {
+  router.get('/', requireBusinessAccess, async (request, response) => {
     const {
       business_id: businessId,
       customer_id: customerId,
@@ -350,7 +351,7 @@ export function createPurchasesRouter({
     return response.status(200).json({ data });
   });
 
-  router.get('/:id', async (request, response) => {
+  router.get('/:id', requireBusinessAccess, async (request, response) => {
     if (!isValidUuid(request.params.id)) {
       return response.status(400).json({
         error: 'purchase id must be a valid UUID.',
@@ -358,8 +359,11 @@ export function createPurchasesRouter({
     }
 
     const { data, error } = await getPurchaseService().findById(
-      request.params.id
-    );
+  request.params.id,
+  request.profile?.role === 'client'
+    ? request.profile.business_id
+    : null
+);
 
     if (error) return sendDatabaseError(response, error);
 
@@ -370,7 +374,7 @@ export function createPurchasesRouter({
     return response.status(200).json({ data });
   });
 
-  router.post('/', async (request, response) => {
+ router.post('/', requireBusinessAccess, async (request, response) => {
     const { errors, values } = validatePurchase(
       request.body ?? {},
       { creating: true }
@@ -401,7 +405,7 @@ export function createPurchasesRouter({
     return response.status(201).json({ data });
   });
 
-  router.put('/:id', async (request, response) => {
+ router.put('/:id', requireBusinessAccess, async (request, response) => {
     if (!isValidUuid(request.params.id)) {
       return response.status(400).json({
         error: 'purchase id must be a valid UUID.',
@@ -418,10 +422,13 @@ export function createPurchasesRouter({
       return response.status(400).json({ errors });
     }
 
-    const { data, error } = await getPurchaseService().update(
-      request.params.id,
-      values
-    );
+   const { data, error } = await getPurchaseService().update(
+  request.params.id,
+  values,
+  request.profile?.role === 'client'
+    ? request.profile.business_id
+    : null
+);
 
     if (error) return sendDatabaseError(response, error);
 
@@ -432,16 +439,19 @@ export function createPurchasesRouter({
     return response.status(200).json({ data });
   });
 
-  router.delete('/:id', async (request, response) => {
+ router.delete('/:id', requireBusinessAccess, async (request, response) => {
     if (!isValidUuid(request.params.id)) {
       return response.status(400).json({
         error: 'purchase id must be a valid UUID.',
       });
     }
 
-    const { data, error } = await getPurchaseService().remove(
-      request.params.id
-    );
+   const { data, error } = await getPurchaseService().remove(
+  request.params.id,
+  request.profile?.role === 'client'
+    ? request.profile.business_id
+    : null
+);
 
     if (error) return sendDatabaseError(response, error);
 

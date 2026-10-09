@@ -40,10 +40,13 @@ function createFakeBusinessService() {
   };
 }
 
-async function withApi(callback) {
+async function withApi(callback, role = 'admin') {
  const app = createApp({
   businessService: createFakeBusinessService(),
-  authMiddleware: bypassAuth,
+  authMiddleware: (request, response, next) => {
+    request.profile = { role };
+    bypassAuth(request, response, next);
+  },
 });
   const server = app.listen();
   const { port } = server.address();
@@ -118,4 +121,30 @@ test('Business API rejects invalid identifiers', async () => {
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), { error: 'business id must be a valid UUID.' });
   });
+});
+
+test('Business API denies all management endpoints to clients', async () => {
+  await withApi(async (baseUrl) => {
+    const requests = [
+      fetch(`${baseUrl}/businesses`),
+      fetch(`${baseUrl}/businesses/${BUSINESS_ID}`),
+      fetch(`${baseUrl}/businesses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Unauthorized Business' }),
+      }),
+      fetch(`${baseUrl}/businesses/${BUSINESS_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Unauthorized Update' }),
+      }),
+      fetch(`${baseUrl}/businesses/${BUSINESS_ID}`, { method: 'DELETE' }),
+    ];
+
+    const responses = await Promise.all(requests);
+    assert.deepEqual(
+      responses.map((response) => response.status),
+      [403, 403, 403, 403, 403],
+    );
+  }, 'client');
 });

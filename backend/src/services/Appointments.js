@@ -17,12 +17,15 @@ export function createAppointmentService(
         });
     },
 
-    async findById(id) {
-      return supabaseClient
+    async findById(id, businessId = null) {
+      let query = supabaseClient
         .from('appointments')
         .select('*')
-        .eq('id', id)
-        .maybeSingle();
+        .eq('id', id);
+
+      if (businessId) query = query.eq('business_id', businessId);
+
+      return query.maybeSingle();
     },
 
     async create(values) {
@@ -33,22 +36,26 @@ export function createAppointmentService(
         .single();
     },
 
-    async update(id, values) {
-      return supabaseClient
+    async update(id, values, businessId = null) {
+      let query = supabaseClient
         .from('appointments')
         .update(values)
-        .eq('id', id)
-        .select('*')
-        .maybeSingle();
+        .eq('id', id);
+
+      if (businessId) query = query.eq('business_id', businessId);
+
+      return query.select('*').maybeSingle();
     },
 
-    async remove(id) {
-      return supabaseClient
+    async remove(id, businessId = null) {
+      let query = supabaseClient
         .from('appointments')
         .delete()
-        .eq('id', id)
-        .select('id')
-        .maybeSingle();
+        .eq('id', id);
+
+      if (businessId) query = query.eq('business_id', businessId);
+
+      return query.select('id').maybeSingle();
     },
   };
 }

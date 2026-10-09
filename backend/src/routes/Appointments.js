@@ -4,6 +4,7 @@ import { createAppointmentService } from '../services/Appointments.js';
 import { createBusinessService } from '../services/businesses.js';
 import { createCustomerService } from '../services/customers.js';
 import { createMessageTemplateService } from '../services/messageTemplates.js';
+import { requireBusinessAccess } from '../middleware/auth.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -404,7 +405,7 @@ export function createAppointmentsRouter({
     return true;
   }
 
-  router.get('/', async (request, response) => {
+  router.get('/', requireBusinessAccess, async (request, response) => {
     const {
       business_id: businessId,
     } = request.query;
@@ -447,6 +448,7 @@ export function createAppointmentsRouter({
 
   router.get(
     '/:id',
+    requireBusinessAccess,
     async (request, response) => {
       if (
         !isValidUuid(
@@ -464,7 +466,10 @@ export function createAppointmentsRouter({
         error,
       } =
         await getAppointmentService().findById(
-          request.params.id
+          request.params.id,
+          request.profile?.role === 'client'
+            ? request.profile.business_id
+            : null
         );
 
       if (error) {
@@ -489,6 +494,7 @@ export function createAppointmentsRouter({
 
   router.post(
     '/',
+    requireBusinessAccess,
     async (request, response) => {
       const {
         errors,
@@ -572,6 +578,7 @@ export function createAppointmentsRouter({
 
   router.put(
     '/:id',
+    requireBusinessAccess,
     async (request, response) => {
       if (
         !isValidUuid(
@@ -604,9 +611,14 @@ export function createAppointmentsRouter({
         });
       }
 
+      const businessScope =
+        request.profile?.role === 'client'
+          ? request.profile.business_id
+          : null;
       const existingResult =
         await getAppointmentService().findById(
-          request.params.id
+          request.params.id,
+          businessScope
         );
 
       if (existingResult.error) {
@@ -654,7 +666,8 @@ export function createAppointmentsRouter({
       } =
         await getAppointmentService().update(
           request.params.id,
-          values
+          values,
+          businessScope
         );
 
       if (error) {
@@ -679,6 +692,7 @@ export function createAppointmentsRouter({
 
   router.delete(
     '/:id',
+    requireBusinessAccess,
     async (request, response) => {
       if (
         !isValidUuid(
@@ -696,7 +710,10 @@ export function createAppointmentsRouter({
         error,
       } =
         await getAppointmentService().remove(
-          request.params.id
+          request.params.id,
+          request.profile?.role === 'client'
+            ? request.profile.business_id
+            : null
         );
 
       if (error) {

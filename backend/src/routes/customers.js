@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { createBusinessService } from '../services/businesses.js';
 import { createCustomerService } from '../services/customers.js';
+import { requireBusinessAccess } from '../middleware/auth.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EDITABLE_FIELDS = ['name', 'phone', 'email', 'consent_given'];
@@ -105,7 +106,7 @@ export function createCustomersRouter({ customerService, businessService } = {})
     return data;
   }
 
-  router.get('/', async (request, response) => {
+  router.get('/', requireBusinessAccess, async (request, response) => {
     const { business_id: businessId } = request.query;
 
     if (!isValidUuid(businessId)) {
@@ -125,13 +126,17 @@ export function createCustomersRouter({ customerService, businessService } = {})
     return response.status(200).json({ data });
   });
 
-  router.get('/:id', async (request, response) => {
-    if (!isValidUuid(request.params.id)) {
+router.get('/:id', requireBusinessAccess, async (request, response) => {
+      if (!isValidUuid(request.params.id)) {
       return response.status(400).json({ error: 'customer id must be a valid UUID.' });
     }
 
-    const { data, error } = await getCustomerService().findById(request.params.id);
-
+const { data, error } = await getCustomerService().findById(
+  request.params.id,
+  request.profile?.role === 'client'
+    ? request.profile.business_id
+    : null
+);
     if (error) {
       return sendDatabaseError(response, error);
     }
@@ -143,8 +148,8 @@ export function createCustomersRouter({ customerService, businessService } = {})
     return response.status(200).json({ data });
   });
 
-  router.post('/', async (request, response) => {
-    const { errors, values } = validateCustomer(request.body ?? {}, { creating: true });
+router.post('/', requireBusinessAccess, async (request, response) => {
+      const { errors, values } = validateCustomer(request.body ?? {}, { creating: true });
 
     if (errors.length) {
       return response.status(400).json({ errors });
@@ -163,7 +168,7 @@ export function createCustomersRouter({ customerService, businessService } = {})
     return response.status(201).json({ data });
   });
 
-  router.put('/:id', async (request, response) => {
+  router.put('/:id', requireBusinessAccess, async (request, response) => {
     if (!isValidUuid(request.params.id)) {
       return response.status(400).json({ error: 'customer id must be a valid UUID.' });
     }
@@ -178,8 +183,13 @@ export function createCustomersRouter({ customerService, businessService } = {})
       return response.status(400).json({ errors });
     }
 
-    const { data, error } = await getCustomerService().update(request.params.id, values);
-
+const { data, error } = await getCustomerService().update(
+  request.params.id,
+  values,
+  request.profile?.role === 'client'
+    ? request.profile.business_id
+    : null
+);
     if (error) {
       return sendDatabaseError(response, error);
     }
@@ -191,13 +201,17 @@ export function createCustomersRouter({ customerService, businessService } = {})
     return response.status(200).json({ data });
   });
 
-  router.delete('/:id', async (request, response) => {
-    if (!isValidUuid(request.params.id)) {
+router.delete('/:id', requireBusinessAccess, async (request, response) => {
+      if (!isValidUuid(request.params.id)) {
       return response.status(400).json({ error: 'customer id must be a valid UUID.' });
     }
 
-    const { data, error } = await getCustomerService().remove(request.params.id);
-
+const { data, error } = await getCustomerService().remove(
+  request.params.id,
+  request.profile?.role === 'client'
+    ? request.profile.business_id
+    : null
+);
     if (error) {
       return sendDatabaseError(response, error);
     }

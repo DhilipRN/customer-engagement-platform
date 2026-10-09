@@ -11,25 +11,49 @@ export function createCustomerService(supabaseClient = getSupabaseClient()) {
         .order('created_at', { ascending: false });
     },
 
-    async findById(id) {
-      return supabaseClient.from('customers').select('*').eq('id', id).maybeSingle();
-    },
+async findById(id, businessId = null) {
+  let query = supabaseClient
+    .from('customers')
+    .select('*')
+    .eq('id', id);
 
+  if (businessId) {
+    query = query.eq('business_id', businessId);
+  }
+
+  return query.maybeSingle();
+},
     async create(values) {
       return supabaseClient.from('customers').insert(values).select('*').single();
     },
+async update(id, values, businessId = null) {
+  let query = supabaseClient
+    .from('customers')
+    .update(values)
+    .eq('id', id);
 
-    async update(id, values) {
-      return supabaseClient
-        .from('customers')
-        .update(values)
-        .eq('id', id)
-        .select('*')
-        .maybeSingle();
-    },
+  if (businessId) {
+    query = query.eq('business_id', businessId);
+  }
 
-    async remove(id) {
-      return supabaseClient.from('customers').delete().eq('id', id).select('id').maybeSingle();
-    },
+  return query
+    .select('*')
+    .maybeSingle();
+},
+
+   async remove(id, businessId = null) {
+  let query = supabaseClient
+    .from('customers')
+    .delete()
+    .eq('id', id);
+
+  if (businessId) {
+    query = query.eq('business_id', businessId);
+  }
+
+  return query
+    .select('id')
+    .maybeSingle();
+},
   };
 }
