@@ -11,6 +11,25 @@ export function createCustomerService(supabaseClient = getSupabaseClient()) {
         .order('created_at', { ascending: false });
     },
 
+    async findByBusinessIdAndPhone(
+      businessId,
+      phone,
+      excludedCustomerId = null
+    ) {
+      let query = supabaseClient
+        .from('customers')
+        .select('id')
+        .eq('business_id', businessId)
+        .eq('phone', phone)
+        .limit(1);
+
+      if (excludedCustomerId) {
+        query = query.neq('id', excludedCustomerId);
+      }
+
+      return query.maybeSingle();
+    },
+
 async findById(id, businessId = null) {
   let query = supabaseClient
     .from('customers')

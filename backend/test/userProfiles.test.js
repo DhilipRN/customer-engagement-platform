@@ -4,6 +4,7 @@ import { createApp } from '../src/app.js';
 import { bypassAuth } from './authTestHelper.js';
 
 const BUSINESS_ID = '96a26c1b-eae8-4cf2-bfe1-beba2827461d';
+const PREVIOUS_BUSINESS_ID = '07373922-f6e5-4a5d-b855-4f14d762fce5';
 const CLIENT_ID = 'client-1';
 const ADMIN_ID = 'admin-1';
 
@@ -16,8 +17,11 @@ function createSupabaseClient({
   businessError = null,
   targetProfiles = {},
   targetProfileError = null,
-  updateResult,
-  updateError = null,
+  memberships = [],
+  membershipsError = null,
+  rpcResult,
+  rpcError = null,
+  rpcCalls = [],
 } = {}) {
   return {
     auth: {
@@ -27,6 +31,20 @@ function createSupabaseClient({
           error: usersError,
         }),
       },
+    },
+
+    async rpc(functionName, parameters) {
+      rpcCalls.push({ functionName, parameters });
+      return {
+        data: rpcResult ?? {
+          id: CLIENT_ID,
+          role: 'client',
+          business_id: parameters.p_business_id,
+          created_at: '2026-10-04T00:00:00.000Z',
+          updated_at: '2026-10-04T00:00:00.000Z',
+        },
+        error: rpcError,
+      };
     },
 
     from(table) {
@@ -43,6 +61,14 @@ function createSupabaseClient({
                 };
               },
             };
+          },
+        };
+      }
+
+      if (table === 'business_memberships') {
+        return {
+          select() {
+            return Promise.resolve({ data: memberships, error: membershipsError });
           },
         };
       }
@@ -80,28 +106,6 @@ function createSupabaseClient({
           };
         },
 
-        update(values) {
-          return {
-            eq() {
-              return {
-                select() {
-                  return {
-                    single: async () => ({
-                      data: updateResult ?? {
-                        id: CLIENT_ID,
-                        role: 'client',
-                        business_id: values.business_id,
-                        created_at: '2026-10-04T00:00:00.000Z',
-                        updated_at: values.updated_at,
-                      },
-                      error: updateError,
-                    }),
-                  };
-                },
-              };
-            },
-          };
-        },
       };
     },
   };
@@ -110,6 +114,7 @@ function createSupabaseClient({
 function createAuthMiddleware(role) {
   return (request, response, next) => {
     request.profile = { role };
+    request.user = { id: ADMIN_ID };
     bypassAuth(request, response, next);
   };
 }
@@ -149,6 +154,7 @@ test('user profile API lists profiles for an admin', async () => {
         created_at: '2026-10-04T00:00:00.000Z',
       },
     ],
+    memberships: [{ user_id: CLIENT_ID, business_id: null, role: 'owner' }],
     users: [{ id: CLIENT_ID, email: 'client@example.com' }],
   });
 
@@ -161,6 +167,7 @@ test('user profile API lists profiles for an admin', async () => {
         ...clientProfile,
         created_at: '2026-10-04T00:00:00.000Z',
         email: 'client@example.com',
+        membership_role: 'owner',
       },
     ]);
   });
@@ -184,9 +191,11 @@ test('user profile API denies profile listing to clients', async () => {
 });
 
 test('an admin can assign an existing business to an existing client profile', async () => {
+  const rpcCalls = [];
   const supabaseClient = createSupabaseClient({
     businesses: [{ id: BUSINESS_ID }],
     targetProfiles: { [CLIENT_ID]: clientProfile },
+    rpcCalls,
   });
 
   await withTestServer({ supabaseClient }, async (baseUrl) => {
@@ -205,6 +214,107 @@ test('an admin can assign an existing business to an existing client profile', a
     assert.equal(body.data.role, 'client');
     assert.equal(body.data.business_id, BUSINESS_ID);
   });
+
+  assert.deepEqual(rpcCalls, [{
+    functionName: 'assign_client_profile_business',
+    parameters: {
+      p_profile_id: CLIENT_ID,
+      p_business_id: BUSINESS_ID,
+      p_expected_business_id: null,
+      p_actor_user_id: ADMIN_ID,
+      p_membership_role: 'receptionist',
+    },
+  }]);
+});
+
+test('a client cannot assign a business to a user profile', async () => {
+  const rpcCalls = [];
+  const supabaseClient = createSupabaseClient({
+    businesses: [{ id: BUSINESS_ID }],
+    targetProfiles: { [CLIENT_ID]: clientProfile },
+    rpcCalls,
+  });
+
+  await withTestServer({ role: 'client', supabaseClient }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/user-profiles/${CLIENT_ID}/business`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ business_id: BUSINESS_ID }),
+    });
+
+    assert.equal(response.status, 403);
+  });
+
+  assert.deepEqual(rpcCalls, []);
+});
+
+test('business assignment passes the current business as the conflict expectation', async () => {
+  const rpcCalls = [];
+  const supabaseClient = createSupabaseClient({
+    businesses: [{ id: BUSINESS_ID }],
+    targetProfiles: {
+      [CLIENT_ID]: { ...clientProfile, business_id: PREVIOUS_BUSINESS_ID },
+    },
+    rpcCalls,
+  });
+
+  await withTestServer({ supabaseClient }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/user-profiles/${CLIENT_ID}/business`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ business_id: BUSINESS_ID }),
+    });
+
+    assert.equal(response.status, 200);
+  });
+
+  assert.equal(rpcCalls[0].parameters.p_expected_business_id, PREVIOUS_BUSINESS_ID);
+  assert.equal(rpcCalls[0].parameters.p_membership_role, 'receptionist');
+});
+
+test('business assignment passes owner role to the atomic RPC', async () => {
+  const rpcCalls = [];
+  const supabaseClient = createSupabaseClient({
+    businesses: [{ id: BUSINESS_ID }],
+    targetProfiles: { [CLIENT_ID]: clientProfile },
+    rpcCalls,
+  });
+
+  await withTestServer({ supabaseClient }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/user-profiles/${CLIENT_ID}/business`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ business_id: BUSINESS_ID, membership_role: 'owner' }),
+    });
+
+    assert.equal(response.status, 200);
+  });
+
+  assert.equal(rpcCalls[0].parameters.p_membership_role, 'owner');
+});
+
+test('business assignment rejects invalid membership roles before the RPC', async () => {
+  const rpcCalls = [];
+  const supabaseClient = createSupabaseClient({
+    businesses: [{ id: BUSINESS_ID }],
+    targetProfiles: { [CLIENT_ID]: clientProfile },
+    rpcCalls,
+  });
+
+  await withTestServer({ supabaseClient }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/user-profiles/${CLIENT_ID}/business`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ business_id: BUSINESS_ID, membership_role: 'admin' }),
+    });
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+      error: 'membership_role must be either receptionist or owner.',
+    });
+  });
+
+  assert.deepEqual(rpcCalls, []);
 });
 
 test('business assignment requires business_id', async () => {
@@ -226,6 +336,29 @@ test('business assignment requires business_id', async () => {
       });
     },
   );
+});
+
+test('business assignment reports a conflict from the atomic assignment RPC', async () => {
+  const supabaseClient = createSupabaseClient({
+    businesses: [{ id: BUSINESS_ID }],
+    targetProfiles: {
+      [CLIENT_ID]: { ...clientProfile, business_id: PREVIOUS_BUSINESS_ID },
+    },
+    rpcError: { code: 'P0004' },
+  });
+
+  await withTestServer({ supabaseClient }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/user-profiles/${CLIENT_ID}/business`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ business_id: BUSINESS_ID }),
+    });
+
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), {
+      error: 'Business assignment changed. Please refresh and try again.',
+    });
+  });
 });
 
 test('business assignment rejects a nonexistent business', async () => {
@@ -323,7 +456,7 @@ test('profile update errors return a server error response', async () => {
   const supabaseClient = createSupabaseClient({
     businesses: [{ id: BUSINESS_ID }],
     targetProfiles: { [CLIENT_ID]: clientProfile },
-    updateError: new Error('profile update failed'),
+    rpcError: new Error('profile update failed'),
   });
 
   await withTestServer({ supabaseClient }, async (baseUrl) => {
@@ -339,6 +472,49 @@ test('profile update errors return a server error response', async () => {
     assert.equal(response.status, 500);
     assert.deepEqual(await response.json(), {
       error: 'Unable to assign business.',
+    });
+  });
+});
+
+test('business assignment reports atomic RPC failures as a server error', async () => {
+  const supabaseClient = createSupabaseClient({
+    businesses: [{ id: BUSINESS_ID }],
+    targetProfiles: { [CLIENT_ID]: clientProfile },
+    rpcError: new Error('audit insert failed'),
+  });
+
+  await withTestServer({ supabaseClient }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/user-profiles/${CLIENT_ID}/business`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ business_id: BUSINESS_ID }),
+    });
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      error: 'Unable to assign business.',
+    });
+  });
+});
+
+test('business assignment reports last-owner protection as an actionable conflict', async () => {
+  const supabaseClient = createSupabaseClient({
+    businesses: [{ id: BUSINESS_ID }],
+    targetProfiles: { [CLIENT_ID]: clientProfile },
+    rpcError: { code: 'P0001', message: 'A business must retain an owner.' },
+  });
+
+  await withTestServer({ supabaseClient }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/user-profiles/${CLIENT_ID}/business`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ business_id: BUSINESS_ID, membership_role: 'receptionist' }),
+    });
+
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), {
+      error:
+        'Cannot change this membership because the business must retain at least one owner. Assign another owner first.',
     });
   });
 });

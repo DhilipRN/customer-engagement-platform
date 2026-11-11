@@ -8,6 +8,9 @@ function requiredEnvironment(name) {
   return value.trim();
 }
 
+const DEVELOPMENT_WHATSAPP_WEBHOOK_VERIFY_TOKEN =
+  'connectly-development-webhook-token';
+
 export function getSupabaseConfig() {
   const url = requiredEnvironment('SUPABASE_URL');
 
@@ -20,5 +23,14 @@ export function getSupabaseConfig() {
   return {
     url,
     serviceRoleKey: requiredEnvironment('SUPABASE_SERVICE_ROLE_KEY'),
+  };
+}
+
+export function getWhatsAppWebhookConfig() {
+  return {
+    verifyToken:
+      process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN?.trim() ||
+      DEVELOPMENT_WHATSAPP_WEBHOOK_VERIFY_TOKEN,
+    businessId: process.env.WHATSAPP_BUSINESS_ID?.trim() || null,
   };
 }

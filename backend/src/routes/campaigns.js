@@ -2,7 +2,12 @@ import { Router } from 'express';
 import { createBusinessService } from '../services/businesses.js';
 import { createCampaignService } from '../services/campaigns.js';
 import { createMessageTemplateService } from '../services/messageTemplates.js';
-import { requireBusinessAccess } from '../middleware/auth.js';
+import { createActivityEventService } from '../services/activityEvents.js';
+import {
+  createBusinessPermissionMiddleware,
+  getAuthorizedBusinessId,
+  requireBusinessAccess,
+} from '../middleware/auth.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STATUSES = new Set(['draft', 'scheduled', 'running', 'completed', 'cancelled']);
@@ -20,6 +25,32 @@ const databaseError = (response, error) => {
   console.error(error);
   return response.status(500).json({ error: 'Unable to process the campaign request.' });
 };
+
+const AUDITED_CAMPAIGN_FIELDS = [
+  'name',
+  'template_id',
+  'status',
+  'scheduled_at',
+];
+
+function auditSnapshot(campaign) {
+  return Object.fromEntries(
+    AUDITED_CAMPAIGN_FIELDS
+      .filter((field) => Object.prototype.hasOwnProperty.call(campaign, field))
+      .map((field) => [field, campaign[field]])
+  );
+}
+
+function changedFields(before, after, fields) {
+  return fields.filter((field) => before[field] !== after[field]);
+}
+
+function sendAuditError(response, error) {
+  console.error('Unable to record campaign activity event:', error?.message ?? error);
+  return response.status(500).json({
+    error: 'Campaign operation succeeded, but its audit event could not be recorded.',
+  });
+}
 
 function validateCampaign(payload, { creating = false } = {}) {
   const errors = [];
@@ -49,14 +80,45 @@ function validateCampaign(payload, { creating = false } = {}) {
   return { errors, values };
 }
 
-export function createCampaignsRouter({ campaignService, businessService, messageTemplateService } = {}) {
+export function createCampaignsRouter({ campaignService, businessService, messageTemplateService, activityEventService, businessAccessMiddleware, permissionService } = {}) {
   const router = Router();
+  const accessMiddleware = businessAccessMiddleware ?? requireBusinessAccess;
+  const requireViewCampaigns = createBusinessPermissionMiddleware({ permissionService, permission: 'view_campaigns', permissionError: 'You do not have permission to view campaigns.', lookupError: 'Unable to verify campaign access.' });
+  const requireManageCampaigns = createBusinessPermissionMiddleware({ permissionService, permission: 'manage_campaigns', permissionError: 'You do not have permission to manage campaigns.', lookupError: 'Unable to verify campaign access.' });
   let campaigns = campaignService;
   let businesses = businessService;
   let templates = messageTemplateService;
+  let activityEvents = activityEventService;
   const getCampaigns = () => (campaigns ??= createCampaignService());
   const getBusinesses = () => (businesses ??= createBusinessService());
   const getTemplates = () => (templates ??= createMessageTemplateService());
+  const getActivityEvents = () => (activityEvents ??= createActivityEventService());
+
+  async function recordCampaignEvent(request, campaign, eventType, fields = {}) {
+    try {
+      const result = await getActivityEvents().create({
+        scope_type: 'business',
+        business_id: campaign.business_id,
+        actor_user_id: request.user?.id ?? null,
+        actor_type: 'user',
+        event_type: eventType,
+        entity_type: 'campaign',
+        entity_id: campaign.id,
+        customer_id: null,
+        is_reconstructed: false,
+        visibility: 'audit_only',
+        ...fields,
+      });
+
+      if (result?.error) return result;
+      if (!result?.data) {
+        return { data: null, error: new Error('Activity event persistence returned no record.') };
+      }
+      return result;
+    } catch (error) {
+      return { data: null, error };
+    }
+  }
 
   async function validateParents(businessId, templateId, response) {
     const business = await getBusinesses().findById(businessId);
@@ -70,33 +132,60 @@ export function createCampaignsRouter({ campaignService, businessService, messag
     return true;
   }
 
-  router.get('/', requireBusinessAccess, async (request, response) => {
+  router.get('/', accessMiddleware, requireViewCampaigns, async (request, response) => {
     const businessId = request.query.business_id;
     if (!validId(businessId)) return response.status(400).json({ error: 'business_id query parameter must be a valid UUID.' });
     if (!(await validateParents(businessId, null, response))) return undefined;
     const { data, error } = await getCampaigns().listByBusinessId(businessId);
     return error ? databaseError(response, error) : response.status(200).json({ data });
   });
-  router.get('/:id', requireBusinessAccess, async (request, response) => {
+  router.get('/:id', accessMiddleware, requireViewCampaigns, async (request, response) => {
     if (!validId(request.params.id)) return response.status(400).json({ error: 'campaign id must be a valid UUID.' });
+    const businessScope = request.profile?.role === 'admin' ? null : getAuthorizedBusinessId(request);
+    if (request.profile && request.profile.role !== 'admin' && !businessScope) {
+      return response.status(403).json({ error: 'An authorized business context is required.' });
+    }
     const { data, error } = await getCampaigns().findById(
       request.params.id,
-      request.profile?.role === 'client' ? request.profile.business_id : null,
+      businessScope,
     );
     if (error) return databaseError(response, error);
     return data ? response.status(200).json({ data }) : response.status(404).json({ error: 'Campaign not found.' });
   });
-  router.post('/', requireBusinessAccess, async (request, response) => {
+  router.post('/', accessMiddleware, requireManageCampaigns, async (request, response) => {
     const { errors, values } = validateCampaign(request.body ?? {}, { creating: true });
     if (values.status === 'scheduled' && !values.scheduled_at) errors.push('scheduled_at is required when status is scheduled.');
     if (errors.length) return response.status(400).json({ errors });
     if (!(await validateParents(values.business_id, values.template_id, response))) return undefined;
     const { data, error } = await getCampaigns().create(values);
-    return error ? databaseError(response, error) : response.status(201).json({ data });
+    if (error) return databaseError(response, error);
+
+    const createdAudit = await recordCampaignEvent(
+      request,
+      data,
+      'campaign.created',
+      { after: auditSnapshot(data) },
+    );
+    if (createdAudit.error) return sendAuditError(response, createdAudit.error);
+
+    if (data.status === 'scheduled') {
+      const scheduledAudit = await recordCampaignEvent(
+        request,
+        data,
+        'campaign.scheduled',
+        { after: { status: data.status, scheduled_at: data.scheduled_at } },
+      );
+      if (scheduledAudit.error) return sendAuditError(response, scheduledAudit.error);
+    }
+
+    return response.status(201).json({ data });
   });
-  router.put('/:id', requireBusinessAccess, async (request, response) => {
+  router.put('/:id', accessMiddleware, requireManageCampaigns, async (request, response) => {
     if (!validId(request.params.id)) return response.status(400).json({ error: 'campaign id must be a valid UUID.' });
-    const businessId = request.profile?.role === 'client' ? request.profile.business_id : null;
+    const businessId = request.profile?.role === 'admin' ? null : getAuthorizedBusinessId(request);
+    if (request.profile && request.profile.role !== 'admin' && !businessId) {
+      return response.status(403).json({ error: 'An authorized business context is required.' });
+    }
     const existing = await getCampaigns().findById(request.params.id, businessId);
     if (existing.error) return databaseError(response, existing.error);
     if (!existing.data) return response.status(404).json({ error: 'Campaign not found.' });
@@ -106,18 +195,89 @@ export function createCampaignsRouter({ campaignService, businessService, messag
     if ((values.status ?? existing.data.status) === 'scheduled' && !(values.scheduled_at ?? existing.data.scheduled_at)) errors.push('scheduled_at is required when status is scheduled.');
     if (errors.length) return response.status(400).json({ errors });
     if (values.template_id && !(await validateParents(existing.data.business_id, values.template_id, response))) return undefined;
+    const before = auditSnapshot(existing.data);
     const { data, error } = await getCampaigns().update(request.params.id, values, businessId);
     if (!data && !error) return response.status(404).json({ error: 'Campaign not found.' });
-    return error ? databaseError(response, error) : response.status(200).json({ data });
+    if (error) return databaseError(response, error);
+
+    const after = auditSnapshot(data);
+    const statusChanged = before.status !== after.status;
+    const changedNonStatusFields = changedFields(
+      before,
+      after,
+      AUDITED_CAMPAIGN_FIELDS.filter(
+        (field) => field !== 'status' && !(statusChanged && field === 'scheduled_at')
+      )
+    );
+
+    if (changedNonStatusFields.length) {
+      const updatedAudit = await recordCampaignEvent(
+        request,
+        data,
+        'campaign.updated',
+        {
+          before: Object.fromEntries(
+            changedNonStatusFields.map((field) => [field, before[field]])
+          ),
+          after: Object.fromEntries(
+            changedNonStatusFields.map((field) => [field, after[field]])
+          ),
+        },
+      );
+      if (updatedAudit.error) return sendAuditError(response, updatedAudit.error);
+    }
+
+    if (before.status !== after.status) {
+      const statusEventTypes = {
+        scheduled: 'campaign.scheduled',
+        running: 'campaign.started',
+        completed: 'campaign.completed',
+        cancelled: 'campaign.cancelled',
+      };
+      const statusAudit = await recordCampaignEvent(
+        request,
+        data,
+        statusEventTypes[after.status] ?? 'campaign.updated',
+        {
+          before: { status: before.status },
+          after: {
+            status: after.status,
+            ...(after.status === 'scheduled'
+              ? { scheduled_at: after.scheduled_at }
+              : {}),
+          },
+        },
+      );
+      if (statusAudit.error) return sendAuditError(response, statusAudit.error);
+    }
+
+    return response.status(200).json({ data });
   });
-  router.delete('/:id', requireBusinessAccess, async (request, response) => {
+  router.delete('/:id', accessMiddleware, requireManageCampaigns, async (request, response) => {
     if (!validId(request.params.id)) return response.status(400).json({ error: 'campaign id must be a valid UUID.' });
+    const businessId = request.profile?.role === 'admin' ? null : getAuthorizedBusinessId(request);
+    if (request.profile && request.profile.role !== 'admin' && !businessId) {
+      return response.status(403).json({ error: 'An authorized business context is required.' });
+    }
+    const existing = await getCampaigns().findById(request.params.id, businessId);
+    if (existing.error) return databaseError(response, existing.error);
+    if (!existing.data) return response.status(404).json({ error: 'Campaign not found.' });
     const { data, error } = await getCampaigns().remove(
       request.params.id,
-      request.profile?.role === 'client' ? request.profile.business_id : null,
+      businessId,
     );
     if (error) return databaseError(response, error);
-    return data ? response.status(204).send() : response.status(404).json({ error: 'Campaign not found.' });
+    if (!data) return response.status(404).json({ error: 'Campaign not found.' });
+
+    const deletedAudit = await recordCampaignEvent(
+      request,
+      existing.data,
+      'campaign.deleted',
+      { before: auditSnapshot(existing.data) },
+    );
+    if (deletedAudit.error) return sendAuditError(response, deletedAudit.error);
+
+    return response.status(204).send();
   });
   return router;
 }

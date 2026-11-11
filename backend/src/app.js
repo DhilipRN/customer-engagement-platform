@@ -11,6 +11,15 @@ import { createMessagesRouter } from './routes/messages.js';
 import { createReviewAutomationsRouter } from './routes/reviewAutomations.js';
 import { createAppointmentsRouter } from './routes/Appointments.js';
 import { createUserProfilesRouter } from './routes/userProfiles.js';
+import { createCustomerComebackExclusionsRouter } from './routes/customerComebackExclusions.js';
+import { createCustomerComebackMessagesRouter } from './routes/customerComebackMessages.js';
+import { createBusinessMembershipsRouter } from './routes/businessMemberships.js';
+import { createWhatsAppWebhooksRouter } from './routes/whatsappWebhooks.js';
+import { getWhatsAppWebhookConfig } from './config/env.js';
+import { createBusinessWhatsAppSettings } from './services/businessWhatsAppSettings.js';
+import { createBusinessWhatsAppSettingsRouter } from './routes/businessWhatsAppSettings.js';
+import { createPurchaseService } from './services/purchases.js';
+import { createAppointmentService } from './services/Appointments.js';
 
 export function createApp({
   businessService,
@@ -21,8 +30,16 @@ export function createApp({
   messageService,
   reviewAutomationService,
   appointmentService,
+  activityEventService,
+  customerComebackExclusionService,
+  customerComebackMessageService,
+  membershipService,
+  businessAccessMiddleware,
+  permissionService,
   supabaseClient,
   authMiddleware = requireAuth,
+  getBusinessIdForPhoneNumberId,
+  businessWhatsAppSettings,
 
 } = {}) {
   const app = express();
@@ -33,13 +50,67 @@ export function createApp({
   app.get('/health', (_request, response) => {
     response.status(200).json({ status: 'ok' });
   });
+
+  const whatsappWebhookConfig = getWhatsAppWebhookConfig();
+  app.use(
+    '/api/webhooks/whatsapp',
+    createWhatsAppWebhooksRouter({
+      messageService,
+      customerService,
+      activityEventService,
+      verifyToken: whatsappWebhookConfig.verifyToken,
+      getBusinessIdForPhoneNumberId:
+        getBusinessIdForPhoneNumberId ??
+        (async () => whatsappWebhookConfig.businessId),
+    }),
+  );
+
   app.use(authMiddleware);
 
-  app.use('/businesses', createBusinessesRouter({ businessService }));
+  app.use(
+    '/api/businesses',
+    createBusinessWhatsAppSettingsRouter({
+      settingsService: businessWhatsAppSettings ?? createBusinessWhatsAppSettings(),
+      businessService,
+      businessAccessMiddleware,
+      permissionService,
+    }),
+  );
+
+  app.use(
+    '/businesses',
+    createBusinessMembershipsRouter({
+      businessService,
+      membershipService,
+      permissionService,
+      activityEventService,
+    }),
+  );
+
+  app.use(
+    '/businesses',
+    createBusinessesRouter({
+      businessService,
+      activityEventService,
+      permissionService,
+    }),
+  );
 
   app.use(
     '/customers',
-    createCustomersRouter({ businessService, customerService })
+    createCustomersRouter({
+      businessService,
+      customerService,
+      purchaseService: purchaseService ?? (
+        supabaseClient ? createPurchaseService(supabaseClient) : undefined
+      ),
+      appointmentService: appointmentService ?? (
+        supabaseClient ? createAppointmentService(supabaseClient) : undefined
+      ),
+      activityEventService,
+      messageService,
+      businessAccessMiddleware,
+    })
   );
 
   app.use(
@@ -51,12 +122,21 @@ export function createApp({
       reviewAutomationService,
       messageTemplateService,
       messageService,
+      activityEventService,
+      businessAccessMiddleware,
+      permissionService,
     })
   );
 
   app.use(
     '/message-templates',
-    createMessageTemplatesRouter({ businessService, messageTemplateService })
+    createMessageTemplatesRouter({
+      businessService,
+      messageTemplateService,
+      activityEventService,
+      businessAccessMiddleware,
+      permissionService,
+    })
   );
 
   app.use(
@@ -65,6 +145,9 @@ export function createApp({
       businessService,
       messageTemplateService,
       campaignService,
+      activityEventService,
+      businessAccessMiddleware,
+      permissionService,
     })
   );
 
@@ -76,6 +159,7 @@ export function createApp({
       messageTemplateService,
       campaignService,
       messageService,
+      businessAccessMiddleware,
     })
   );
 
@@ -85,6 +169,9 @@ export function createApp({
       businessService,
       messageTemplateService,
       reviewAutomationService,
+      activityEventService,
+      businessAccessMiddleware,
+      permissionService,
     })
   );
 
@@ -95,13 +182,42 @@ export function createApp({
       businessService,
       customerService,
       messageTemplateService,
+      messageService,
+      activityEventService,
+      businessAccessMiddleware,
+      permissionService,
+    })
+  );
+
+app.use(
+  '/user-profiles',
+  createUserProfilesRouter({ supabaseClient, activityEventService })
+);
+
+  app.use(
+    '/customer-comeback-exclusions',
+    createCustomerComebackExclusionsRouter({
+      customerService,
+      exclusionService: customerComebackExclusionService,
+      businessAccessMiddleware,
+      permissionService,
     })
   );
 
   app.use(
-  '/user-profiles',
-  createUserProfilesRouter({ supabaseClient })
-);
+    '/customer-comeback-messages',
+    createCustomerComebackMessagesRouter({
+      businessService,
+      customerService,
+      purchaseService,
+      appointmentService,
+      messageTemplateService,
+      exclusionService: customerComebackExclusionService,
+      messageService: customerComebackMessageService ?? messageService,
+      businessAccessMiddleware,
+      permissionService,
+    })
+  );
 
   app.use((error, _request, response, _next) => {
     if (error instanceof SyntaxError && 'body' in error) {

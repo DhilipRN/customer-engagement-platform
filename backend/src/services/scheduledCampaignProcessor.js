@@ -3,9 +3,11 @@ import { createCampaignService } from './campaigns.js';
 import { createCustomerService } from './customers.js';
 import { createMessageService } from './messages.js';
 import { createMessageTemplateService } from './messageTemplates.js';
+import { recordSystemMessageEvent } from './messageActivityEvents.js';
 
 export function createScheduledCampaignProcessor(
-  supabaseClient = getSupabaseClient()
+  supabaseClient = getSupabaseClient(),
+  activityEventService = null,
 ) {
   const campaignService = createCampaignService(supabaseClient);
   const customerService = createCustomerService(supabaseClient);
@@ -118,6 +120,17 @@ export function createScheduledCampaignProcessor(
             if (messageResult.error) {
               throw messageResult.error;
             }
+
+            const auditResult = await recordSystemMessageEvent(
+              activityEventService,
+              messageResult.data,
+              'message.queued',
+              {
+                after: { status: 'queued' },
+                metadata: { source: 'campaign' },
+              },
+            );
+            if (auditResult.error) throw auditResult.error;
 
             createdCount += 1;
           }

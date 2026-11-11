@@ -1,37 +1,351 @@
 import Customers from './UI_Pages/Customers';
+import CustomerComeback from './UI_Pages/CustomerComeback';
 import Dashboard from './UI_Pages/Dashboard';
 import Businesses from './UI_Pages/Businesses';
+import { applyBusinessMutation, getBusinessAuditWarning } from './businessState';
 import Purchases from './UI_Pages/Purchases';
 import MessageTemplates from './UI_Pages/MessageTemplates';
 import Campaigns from './UI_Pages/Campaigns';
 import ReviewAutomation from './UI_Pages/ReviewAutomation';
 import Messages from './UI_Pages/Messages';
+import Chats from './UI_Pages/Chats';
 import Appointments from './UI_Pages/Appointments';
-import { useEffect, useState } from 'react';
+import UserProfiles from './UI_Pages/UserProfiles';
+import BusinessMemberships from './UI_Pages/BusinessMemberships';
+import WhatsAppSettings from './UI_Pages/WhatsAppSettings';
+import { useEffect, useRef, useState } from 'react';
 import './App.css';
 import Login from './Login';
 import { supabase } from './supabaseClient';
 import { apiFetch } from './api';
 
 
-const menuItems = [
+const adminMenuItems = [
   'Dashboard',
   'Businesses',
   'Customers',
+  'Customer Comeback',
   'Purchases',
   'Message Templates',
   'Campaigns',
   'Review Automation',
   'Appointments',
+  'Chats',
   'Messages',
+  'User Profiles',
+  'Business Members',
+  'WhatsApp Settings',
 ];
+
+const clientMenuItems = [
+  'Dashboard',
+  'Customers',
+  'Customer Comeback',
+  'Purchases',
+  'Message Templates',
+  'Campaigns',
+  'Review Automation',
+  'Appointments',
+  'Chats',
+  'Messages',
+  'Business Members',
+  'WhatsApp Settings',
+];
+
+const FEATURE_PAGE_PERMISSIONS = Object.freeze({
+  Customers: 'view_chats',
+  Chats: 'view_chats',
+  Messages: 'view_chats',
+  Purchases: 'view_purchases',
+  Campaigns: 'view_campaigns',
+  'Message Templates': 'view_message_templates',
+  Appointments: 'view_appointments',
+  'Review Automation': 'view_automations',
+  'Customer Comeback': 'view_automations',
+});
+
+const ALL_FEATURE_PERMISSIONS = Object.freeze(
+  [...new Set(Object.values(FEATURE_PAGE_PERMISSIONS))]
+    .concat([
+      'view_customer_activity',
+      'send_messages',
+      'manage_customers',
+      'manage_appointments',
+      'manage_purchases',
+      'manage_campaigns',
+      'manage_message_templates',
+      'manage_automations',
+    ])
+    .reduce((permissions, permission) => ({
+      ...permissions,
+      [permission]: true,
+    }), {})
+);
+
+function createLoaderGuard() {
+  let active = true;
+
+  return {
+    isActive: () => active,
+    cleanup: () => {
+      active = false;
+    },
+  };
+}
+
+
+function ClientDashboard({
+  stats,
+  backendStatus,
+  setActivePage,
+  businessName,
+}) {
+  return (
+    <section>
+      <div
+        style={{
+          background: 'linear-gradient(135deg, #5146e5, #7c6cf6)',
+          color: '#ffffff',
+          borderRadius: '16px',
+          padding: '30px',
+          marginBottom: '22px',
+          boxShadow: '0 10px 25px rgba(81, 70, 229, 0.18)',
+        }}
+      >
+        <div
+          style={{
+            fontSize: '12px',
+            fontWeight: 700,
+            letterSpacing: '1.5px',
+            opacity: 0.85,
+            marginBottom: '8px',
+          }}
+        >
+          CLIENT WORKSPACE
+        </div>
+
+        <h2
+          style={{
+            margin: '0 0 8px',
+            fontSize: '26px',
+          }}
+        >
+          Welcome to your workspace 👋
+        </h2>
+
+        <p
+          style={{
+            margin: 0,
+            opacity: 0.9,
+          }}
+        >
+          {businessName
+            ? `Manage ${businessName}'s customers, purchases, campaigns, and messages from one place.`
+            : 'Manage your customers, purchases, campaigns, and messages from one place.'}
+        </p>
+      </div>
+
+      {businessName && (
+        <div
+          style={{
+            background: '#ffffff',
+            border: '1px solid #e5e7eb',
+            borderRadius: '12px',
+            padding: '16px 20px',
+            marginBottom: '22px',
+          }}
+        >
+          <div
+            style={{
+              fontSize: '12px',
+              color: '#6b7280',
+              marginBottom: '4px',
+            }}
+          >
+            ASSIGNED BUSINESS
+          </div>
+
+          <strong style={{ fontSize: '18px' }}>
+            {businessName}
+          </strong>
+        </div>
+      )}
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+          gap: '16px',
+          marginBottom: '22px',
+        }}
+      >
+        {stats.map((stat) => (
+          <div
+            key={stat.label}
+            style={{
+              background: '#ffffff',
+              border: '1px solid #e5e7eb',
+              borderRadius: '12px',
+              padding: '20px',
+              minHeight: '105px',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <span
+                style={{
+                  color: '#6b7280',
+                  fontSize: '13px',
+                }}
+              >
+                {stat.label}
+              </span>
+
+              <span style={{ fontSize: '20px' }}>
+                {stat.icon}
+              </span>
+            </div>
+
+            <div
+              style={{
+                fontSize: '30px',
+                fontWeight: 700,
+                marginTop: '12px',
+              }}
+            >
+              {stat.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1.5fr 1fr',
+          gap: '18px',
+        }}
+      >
+        <div
+          style={{
+            background: '#ffffff',
+            border: '1px solid #e5e7eb',
+            borderRadius: '12px',
+            padding: '22px',
+          }}
+        >
+          <h3 style={{ marginTop: 0 }}>Quick Actions</h3>
+
+          <p style={{ color: '#6b7280', fontSize: '13px' }}>
+            Jump into your business operations.
+          </p>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '12px',
+            }}
+          >
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => setActivePage('Customers')}
+            >
+              Customers →
+            </button>
+
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => setActivePage('Purchases')}
+            >
+              Purchases →
+            </button>
+
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => setActivePage('Campaigns')}
+            >
+              Campaigns →
+            </button>
+
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => setActivePage('Messages')}
+            >
+              Messages →
+            </button>
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: '#ffffff',
+            border: '1px solid #e5e7eb',
+            borderRadius: '12px',
+            padding: '22px',
+          }}
+        >
+          <h3 style={{ marginTop: 0 }}>System Status</h3>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              padding: '12px 0',
+              borderBottom: '1px solid #f0f0f0',
+            }}
+          >
+            <span>Frontend</span>
+            <strong>Running</strong>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              padding: '12px 0',
+              borderBottom: '1px solid #f0f0f0',
+            }}
+          >
+            <span>Backend</span>
+            <strong>{backendStatus}</strong>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              padding: '12px 0',
+            }}
+          >
+            <span>Workspace</span>
+            <strong>{businessName || 'Not assigned'}</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function App() {
 
     const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [userRole, setUserRole] = useState(null);
+  const [userBusinessId, setUserBusinessId] = useState(null);
+  const [userBusiness, setUserBusiness] = useState(null);
+  const [requestedSelectedBusinessId, setSelectedBusinessId] = useState('');
 
-    useEffect(() => {
+  useEffect(() => {
     let isMounted = true;
 
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -43,8 +357,8 @@ function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+    } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+      setSession(currentSession);
       setAuthLoading(false);
     });
 
@@ -53,8 +367,104 @@ function App() {
       subscription.unsubscribe();
     };
   }, []);
-  
-  const [activePage, setActivePage] = useState(
+
+  useEffect(() => {
+    let isMounted = true;
+    let profileLoadPromise = null;
+
+    async function loadUserProfile() {
+      if (profileLoadPromise) {
+        return profileLoadPromise;
+      }
+
+      profileLoadPromise = (async () => {
+      if (!session?.user) {
+        setUserRole(null);
+        setUserBusinessId(null);
+        setUserBusiness(null);
+        setBusinessAccessVerified(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role, business_id')
+        .eq('id', session.user.id)
+        .single();
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (error) {
+        console.error('Unable to load user profile:', error);
+        setUserRole(null);
+        setUserBusinessId(null);
+        setUserBusiness(null);
+        setBusinessAccessVerified(false);
+        return;
+      }
+
+      setUserRole(data?.role ?? null);
+      setUserBusinessId(data?.business_id ?? null);
+
+      if (data?.role === 'client') {
+        const response = await apiFetch(
+          'http://localhost:3000/businesses/accessible'
+        );
+
+        if (!response.ok) {
+          if (isMounted) {
+            setBusinesses([]);
+            setBusinessCount(0);
+            setUserBusiness(null);
+            setBusinessAccessVerified(false);
+            setBusinessError('Unable to load accessible businesses.');
+          }
+          return;
+        }
+
+        const result = await response.json();
+        const accessibleBusinesses = Array.isArray(result.data)
+          ? result.data
+          : [];
+        const assignedBusiness = accessibleBusinesses.find(
+          (business) => business.id === data.business_id
+        );
+
+        if (isMounted) {
+          setBusinesses(accessibleBusinesses);
+          setBusinessCount(accessibleBusinesses.length);
+          setUserBusiness(assignedBusiness ?? accessibleBusinesses[0] ?? null);
+          setBusinessAccessVerified(true);
+          setBusinessError('');
+        }
+      } else if (data?.role === 'admin') {
+  setUserBusiness(null);
+  setBusinessAccessVerified(true);
+} else {
+  setUserBusiness(null);
+  setBusinessAccessVerified(false);
+}
+      })();
+
+      try {
+        return await profileLoadPromise;
+      } finally {
+        profileLoadPromise = null;
+      }
+    }
+
+    loadUserProfile();
+    window.addEventListener('focus', loadUserProfile);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('focus', loadUserProfile);
+    };
+  }, [session]);
+
+  const [requestedActivePage, setActivePage] = useState(
   window.location.pathname === '/message-templates'
     ? 'Message Templates'
     : window.location.pathname === '/campaigns'
@@ -63,15 +473,25 @@ function App() {
         ? 'Businesses'
         : window.location.pathname === '/customers'
           ? 'Customers'
+          : window.location.pathname === '/customer-comeback'
+            ? 'Customer Comeback'
           : window.location.pathname === '/purchases'
             ? 'Purchases'
             : window.location.pathname === '/review-automation'
               ? 'Review Automation'
               : window.location.pathname === '/appointments'
                 ? 'Appointments'
-              : window.location.pathname === '/messages'
-                ? 'Messages'
-                : 'Dashboard'
+            : window.location.pathname === '/chats'
+              ? 'Chats'
+            : window.location.pathname === '/messages'
+  ? 'Messages'
+  : window.location.pathname === '/user-profiles'
+    ? 'User Profiles'
+    : window.location.pathname === '/business-members'
+      ? 'Business Members'
+    : window.location.pathname === '/whatsapp-settings'
+      ? 'WhatsApp Settings'
+    : 'Dashboard'
                 
 );
 
@@ -79,6 +499,10 @@ function App() {
   const [businessCount, setBusinessCount] = useState(0);
   const [customerCount, setCustomerCount] = useState(0);
   const [campaignCount, setCampaignCount] = useState(0);
+  const [purchaseCount, setPurchaseCount] = useState(0);
+  const [userProfiles, setUserProfiles] = useState([]);
+const [userProfileLoading, setUserProfileLoading] = useState(false);
+const [userProfileError, setUserProfileError] = useState('');
 
 const [sentMessageCount, setSentMessageCount] = useState(0);
 
@@ -86,8 +510,177 @@ const [sentMessageCount, setSentMessageCount] = useState(0);
   // Businesses
   // -----------------------------
   const [businesses, setBusinesses] = useState([]);
+  const businessLoadRef = useRef(null);
   const [businessLoading, setBusinessLoading] = useState(false);
   const [businessError, setBusinessError] = useState('');
+  const [businessAccessVerified, setBusinessAccessVerified] = useState(false);
+  const [membershipAuthorizedBusinessIds, setMembershipAuthorizedBusinessIds] = useState([]);
+  const [membershipAuthorizationLoading, setMembershipAuthorizationLoading] = useState(true);
+  const [membershipAuthorizationError, setMembershipAuthorizationError] = useState('');
+  const [businessPermissions, setBusinessPermissions] = useState(null);
+  const [businessPermissionsLoading, setBusinessPermissionsLoading] = useState(true);
+  const [businessPermissionsError, setBusinessPermissionsError] = useState('');
+
+  const selectedBusinessId = userRole === 'admin' &&
+    businesses.some((business) => business.id === requestedSelectedBusinessId)
+    ? requestedSelectedBusinessId
+    : '';
+
+  useEffect(() => {
+    let active = true;
+
+    async function verifyMembershipManagementAccess() {
+      setMembershipAuthorizationLoading(true);
+      setMembershipAuthorizationError('');
+      setMembershipAuthorizedBusinessIds([]);
+
+      if (!session?.user || !userRole || !businessAccessVerified) {
+        if (active) setMembershipAuthorizationLoading(false);
+        return;
+      }
+
+      if (userRole === 'admin') {
+        if (active) {
+          setMembershipAuthorizedBusinessIds(businesses.map((business) => business.id));
+          setMembershipAuthorizationLoading(false);
+        }
+        return;
+      }
+
+      if (userRole !== 'client' || businesses.length === 0) {
+        if (active) setMembershipAuthorizationLoading(false);
+        return;
+      }
+
+      const authorizedBusinessIds = [];
+      let lookupError = '';
+
+      await Promise.all(businesses.map(async (business) => {
+        try {
+          const response = await apiFetch(
+            `http://localhost:3000/businesses/${encodeURIComponent(business.id)}/members`
+          );
+
+          if (response.ok) {
+            authorizedBusinessIds.push(business.id);
+          } else if (response.status !== 403) {
+            lookupError = response.status === 401
+              ? 'Your session is no longer authorized.'
+              : 'Unable to verify business membership management access.';
+          }
+        } catch (error) {
+          lookupError = error.message || 'Unable to verify business membership management access.';
+        }
+      }));
+
+      if (active) {
+        setMembershipAuthorizedBusinessIds(authorizedBusinessIds);
+        setMembershipAuthorizationError(lookupError);
+        setMembershipAuthorizationLoading(false);
+      }
+    }
+
+    verifyMembershipManagementAccess();
+    return () => { active = false; };
+  }, [session, userRole, businesses, businessAccessVerified]);
+
+  const permissionBusinessId = userRole === 'admin'
+    ? selectedBusinessId
+    : (userBusiness?.id || '');
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadBusinessPermissions() {
+      if (userRole === 'admin') {
+        if (active) {
+          setBusinessPermissions(ALL_FEATURE_PERMISSIONS);
+          setBusinessPermissionsError('');
+          setBusinessPermissionsLoading(false);
+        }
+        return;
+      }
+
+      if (!session?.user || userRole !== 'client' || !permissionBusinessId) {
+        if (active) {
+          setBusinessPermissions(null);
+          setBusinessPermissionsError('');
+          setBusinessPermissionsLoading(false);
+        }
+        return;
+      }
+
+      setBusinessPermissionsLoading(true);
+      setBusinessPermissionsError('');
+      setBusinessPermissions(null);
+
+      try {
+        const response = await apiFetch(
+          `http://localhost:3000/businesses/${encodeURIComponent(permissionBusinessId)}/permissions`
+        );
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Unable to load business permissions.');
+        }
+
+        if (active) {
+          setBusinessPermissions(result.data?.permissions ?? null);
+          setBusinessPermissionsLoading(false);
+        }
+      } catch (error) {
+        if (active) {
+          setBusinessPermissions(null);
+          setBusinessPermissionsError(error.message);
+          setBusinessPermissionsLoading(false);
+        }
+      }
+    }
+
+    loadBusinessPermissions();
+
+    return () => {
+      active = false;
+    };
+  }, [permissionBusinessId, session?.user?.id, userRole]);
+
+const canManageMemberships =
+  !membershipAuthorizationLoading &&
+  !membershipAuthorizationError &&
+  (
+    userRole === 'admin'
+      ? businessAccessVerified
+      : membershipAuthorizedBusinessIds.length > 0
+  );
+
+  const canManageWhatsApp = userRole === 'admin' || (
+    userRole === 'client' &&
+    Boolean(userBusiness?.id) &&
+    membershipAuthorizedBusinessIds.includes(userBusiness.id)
+  );
+
+  const permissionsReady = userRole === 'admin'
+    || (!businessPermissionsLoading && !businessPermissionsError && businessPermissions);
+  const canAccessPage = (page) => {
+    if (userRole === 'admin') return true;
+    const permission = FEATURE_PAGE_PERMISSIONS[page];
+    return !permission || (permissionsReady && businessPermissions?.[permission] === true);
+  };
+
+  const activePage = userRole === 'client' &&
+    (requestedActivePage === 'Businesses' || requestedActivePage === 'User Profiles')
+    ? 'Dashboard'
+    : requestedActivePage === 'Business Members' &&
+      !membershipAuthorizationLoading &&
+      !canManageMemberships
+      ? 'Dashboard'
+      : requestedActivePage === 'WhatsApp Settings' && !canManageWhatsApp
+      ? 'Dashboard'
+      : FEATURE_PAGE_PERMISSIONS[requestedActivePage] &&
+        !canAccessPage(requestedActivePage)
+        ? 'Dashboard'
+      : requestedActivePage;
+
   const [newBusiness, setNewBusiness] = useState({
     name: '',
     phone: '',
@@ -97,6 +690,8 @@ const [sentMessageCount, setSentMessageCount] = useState(0);
   });
   const [businessSubmitting, setBusinessSubmitting] = useState(false);
   const [businessMessage, setBusinessMessage] = useState('');
+  const [businessMessageError, setBusinessMessageError] = useState(false);
+  const [businessWarning, setBusinessWarning] = useState('');
   const [editingBusiness, setEditingBusiness] = useState(null);
   const [editBusinessForm, setEditBusinessForm] = useState({
     name: '',
@@ -113,6 +708,10 @@ const [sentMessageCount, setSentMessageCount] = useState(0);
   const [customers, setCustomers] = useState([]);
   const [customerLoading, setCustomerLoading] = useState(false);
   const [customerError, setCustomerError] = useState('');
+  const [comebackCustomers, setComebackCustomers] = useState([]);
+  const [comebackLoading, setComebackLoading] = useState(false);
+  const [comebackError, setComebackError] = useState('');
+  const [inactivityDays, setInactivityDays] = useState(30);
 
   const [newCustomer, setNewCustomer] = useState({
     business_id: '',
@@ -184,6 +783,7 @@ const [messageError, setMessageError] = useState('');
     name: '',
     category: '',
     message: '',
+    metadata: { language: 'en', buttons: [] },
   });
 
   const [templateSubmitting, setTemplateSubmitting] = useState(false);
@@ -195,6 +795,7 @@ const [editTemplateForm, setEditTemplateForm] = useState({
   name: '',
   category: '',
   message: '',
+  metadata: { language: 'en', buttons: [] },
 });
 
 // -----------------------------
@@ -218,6 +819,19 @@ const [reviewSubmitting, setReviewSubmitting] =
 
 const [reviewMessage, setReviewMessage] =
   useState('');
+
+const handleSelectedReviewBusinessChange = (businessId) => {
+  setSelectedReviewBusinessId(businessId);
+  const selected = reviewAutomation?.find(
+    (item) => item.business.id === businessId
+  );
+  setReviewForm({
+    enabled: selected?.automation?.enabled ?? true,
+    delay_minutes: selected?.automation?.delay_minutes ?? 120,
+    template_id: selected?.automation?.template_id ?? '',
+  });
+  setReviewMessage('');
+};
 
 
 const [templateActionLoading, setTemplateActionLoading] = useState(false);
@@ -269,7 +883,7 @@ const [newAppointment, setNewAppointment] = useState({
   appointment_date: '',
   appointment_time: '',
   appointment_type: '',
-  reminder_enabled: true,
+  reminder_enabled: false,
   reminder_minutes: 1440,
   template_id: '',
 });
@@ -284,6 +898,7 @@ const [editAppointmentForm, setEditAppointmentForm] = useState({
   appointment_time: '',
   appointment_type: '',
   status: 'scheduled',
+  template_id: '',
 });
 
 const [appointmentActionLoading, setAppointmentActionLoading] =
@@ -313,105 +928,180 @@ const [appointmentActionLoading, setAppointmentActionLoading] =
   }, []);
 
   // ============================================================
+// LOAD USER PROFILES
+// ============================================================
+
+useEffect(() => {
+  if (userRole !== 'admin' || !['User Profiles', 'Business Members'].includes(activePage)) {
+    return;
+  }
+
+  async function loadUserProfiles() {
+    setUserProfileLoading(true);
+    setUserProfileError('');
+
+    try {
+      const response = await apiFetch(
+        'http://localhost:3000/user-profiles'
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error || 'Unable to fetch user profiles'
+        );
+      }
+
+      setUserProfiles(result.data ?? []);
+    } catch (error) {
+      setUserProfileError(error.message);
+    } finally {
+      setUserProfileLoading(false);
+    }
+  }
+
+  loadUserProfiles();
+}, [activePage, userRole]);
+
+  // ============================================================
   // LOAD BUSINESSES
   // ============================================================
 
   useEffect(() => {
-    if (activePage !== 'Businesses') {
-      return;
-    }
+      if (userRole !== 'admin') {
+    return;
+  }
+
+    const guard = createLoaderGuard();
 
     async function loadBusinesses() {
-      setBusinessLoading(true);
-      setBusinessError('');
-
       try {
-        const response = await apiFetch(
-          'http://localhost:3000/businesses'
-        );
-
-        if (!response.ok) {
-          throw new Error('Unable to fetch businesses');
-        }
-
-        const result = await response.json();
-        const businessList = result.data ?? [];
-
-        setBusinesses(businessList);
-        setBusinessCount(businessList.length);
+        await loadAllBusinesses(guard.isActive);
       } catch (error) {
-        setBusinessError(error.message);
-      } finally {
-        setBusinessLoading(false);
+        if (guard.isActive()) {
+          setBusinessError(error.message);
+        }
       }
     }
 
     loadBusinesses();
-  }, [activePage]);
+
+    return () => {
+      guard.cleanup();
+    };
+  }, [userRole]);
 
   // ============================================================
   // LOAD DASHBOARD DATA
   // ============================================================
 
   useEffect(() => {
+    if (!userRole) {
+      return;
+    }
+
+    const guard = createLoaderGuard();
+
     async function loadDashboardData() {
       try {
-        const businessesResponse = await apiFetch(
-          'http://localhost:3000/businesses'
-        );
-
-        if (!businessesResponse.ok) {
-          throw new Error('Unable to fetch businesses');
+        if (
+          userRole === 'client' &&
+          (!userBusinessId || !userBusiness)
+        ) {
+          if (guard.isActive()) {
+            setBusinesses([]);
+            setBusinessCount(0);
+            setCustomerCount(0);
+            setPurchaseCount(0);
+            setCampaignCount(0);
+            setSentMessageCount(0);
+          }
+          return;
         }
 
-        const businessesResult = await businessesResponse.json();
-        const businessList = businessesResult.data ?? [];
+        const businessList = await getAccessibleBusinesses(guard.isActive);
 
-        setBusinesses(businessList);
+        if (!guard.isActive()) {
+          return;
+        }
+
         setBusinessCount(businessList.length);
 
-        const [customerResponses, campaignResponses, messageResponses] =
-          await Promise.all([
-            Promise.all(
-              businessList.map((business) =>
-                apiFetch(
-                  `http://localhost:3000/customers?business_id=${business.id}`
-                )
-              )
-            ),
-            Promise.all(
-              businessList.map((business) =>
-                apiFetch(
-                  `http://localhost:3000/campaigns?business_id=${business.id}`
-                )
-              )
-            ),
-            Promise.all(
-              businessList.map((business) =>
-                apiFetch(
-                  `http://localhost:3000/messages?business_id=${business.id}&status=sent`
-                )
-              )
-            ),
-          ]);
+        const customerResponses = await Promise.all(
+          businessList.map((business) =>
+            apiFetch(
+              `http://localhost:3000/customers?business_id=${business.id}`
+            )
+          )
+        );
+
+        const purchaseResponses = await Promise.all(
+          businessList.map((business) =>
+            apiFetch(
+              `http://localhost:3000/purchases?business_id=${business.id}`
+            )
+          )
+        );
+
+        const campaignResponses = await Promise.all(
+          businessList.map((business) =>
+            apiFetch(
+              `http://localhost:3000/campaigns?business_id=${business.id}`
+            )
+          )
+        );
+
+        const messageResponses = await Promise.all(
+          businessList.map((business) =>
+            apiFetch(
+              `http://localhost:3000/messages?business_id=${business.id}&status=sent`
+            )
+          )
+        );
 
         if (
           customerResponses.some((response) => !response.ok) ||
+          purchaseResponses.some((response) => !response.ok) ||
           campaignResponses.some((response) => !response.ok) ||
           messageResponses.some((response) => !response.ok)
         ) {
           throw new Error('Unable to load dashboard data');
         }
 
-        const [customerResults, campaignResults, messageResults] =
-          await Promise.all([
-            Promise.all(customerResponses.map((response) => response.json())),
-            Promise.all(campaignResponses.map((response) => response.json())),
-            Promise.all(messageResponses.map((response) => response.json())),
-          ]);
+        const [
+          customerResults,
+          purchaseResults,
+          campaignResults,
+          messageResults,
+        ] = await Promise.all([
+          Promise.all(
+            customerResponses.map((response) => response.json())
+          ),
+          Promise.all(
+            purchaseResponses.map((response) => response.json())
+          ),
+          Promise.all(
+            campaignResponses.map((response) => response.json())
+          ),
+          Promise.all(
+            messageResponses.map((response) => response.json())
+          ),
+        ]);
+
+        if (!guard.isActive()) {
+          return;
+        }
 
         setCustomerCount(
           customerResults.reduce(
+            (count, result) => count + (result.data?.length ?? 0),
+            0
+          )
+        );
+
+        setPurchaseCount(
+          purchaseResults.reduce(
             (count, result) => count + (result.data?.length ?? 0),
             0
           )
@@ -431,42 +1121,51 @@ const [appointmentActionLoading, setAppointmentActionLoading] =
           )
         );
       } catch (error) {
-        console.error('Dashboard data fetch failed:', error);
+        if (guard.isActive()) {
+          console.error('Dashboard data fetch failed:', error);
+        }
       }
     }
 
     loadDashboardData();
-  }, []);
 
-   // ============================================================
+    return guard.cleanup;
+  }, [
+    userRole,
+    userBusinessId,
+    userBusiness,
+    selectedBusinessId,
+  ]);
+
+  // ============================================================
   // LOAD CUSTOMERS
   // ============================================================
 
   useEffect(() => {
     if (
       activePage !== 'Customers' &&
-      activePage !== 'Appointments'
+      activePage !== 'Appointments' &&
+      activePage !== 'Dashboard'
     ) {
       return;
     }
+
+    const guard = createLoaderGuard();
 
     async function loadCustomers() {
       setCustomerLoading(true);
       setCustomerError('');
 
       try {
-        const businessesResponse = await apiFetch(
-          'http://localhost:3000/businesses'
-        );
+        const businessList = await getAccessibleBusinesses(guard.isActive);
 
-        if (!businessesResponse.ok) {
-          throw new Error('Unable to fetch businesses');
+        if (!guard.isActive()) {
+          return;
         }
 
-        const businessesResult = await businessesResponse.json();
-        const businessList = businessesResult.data ?? [];
-
-        setBusinesses(businessList);
+        if (userRole === 'client') {
+          setBusinesses(businessList);
+        }
 
         const customerResponses = await Promise.all(
           businessList.map((business) =>
@@ -492,17 +1191,101 @@ const [appointmentActionLoading, setAppointmentActionLoading] =
             }))
         );
 
+        if (!guard.isActive()) {
+          return;
+        }
+
         setCustomers(allCustomers);
       } catch (error) {
-        setCustomerError(error.message);
+        if (guard.isActive()) {
+          setCustomerError(error.message);
+        }
       } finally {
-        setCustomerLoading(false);
+        if (guard.isActive()) {
+          setCustomerLoading(false);
+        }
       }
     }
 
     loadCustomers();
-  }, [activePage]);
-  
+
+    return () => {
+      guard.cleanup();
+      setCustomerLoading(false);
+    };
+  }, [activePage, userRole, userBusiness, selectedBusinessId]);
+
+  // ============================================================
+  // LOAD CUSTOMER COMEBACK DATA
+  // ============================================================
+
+  useEffect(() => {
+    if (activePage !== 'Customer Comeback') {
+      return;
+    }
+
+    const guard = createLoaderGuard();
+
+    async function loadComebackCustomers() {
+      setComebackLoading(true);
+      setComebackError('');
+
+      try {
+        const businessList = await getAccessibleBusinesses(guard.isActive);
+
+        if (!guard.isActive()) {
+          return;
+        }
+
+        const responses = await Promise.all(
+          businessList.map((business) =>
+            apiFetch(
+              `http://localhost:3000/customers/inactive?business_id=${encodeURIComponent(
+                business.id
+              )}&days=${inactivityDays}`
+            )
+          )
+        );
+
+        if (responses.some((response) => !response.ok)) {
+          throw new Error('Unable to load customer comeback data');
+        }
+
+        const results = await Promise.all(
+          responses.map((response) => response.json())
+        );
+
+        const allComebackCustomers = results.flatMap((result, index) =>
+          (result.data ?? []).map((customer) => ({
+            ...customer,
+            businessName: businessList[index].name,
+          }))
+        );
+
+        if (!guard.isActive()) {
+          return;
+        }
+
+        setComebackCustomers(allComebackCustomers);
+      } catch (error) {
+        if (guard.isActive()) {
+          setComebackError(error.message);
+        }
+      } finally {
+        if (guard.isActive()) {
+          setComebackLoading(false);
+        }
+      }
+    }
+
+    loadComebackCustomers();
+
+    return () => {
+      guard.cleanup();
+      setComebackLoading(false);
+    };
+  }, [activePage, userRole, userBusiness, selectedBusinessId, inactivityDays]);
+
   // ============================================================
   // LOAD PURCHASES
   // ============================================================
@@ -512,23 +1295,22 @@ const [appointmentActionLoading, setAppointmentActionLoading] =
       return;
     }
 
+    const guard = createLoaderGuard();
+
     async function loadPurchases() {
       setPurchaseLoading(true);
       setPurchaseError('');
 
       try {
-        const businessesResponse = await apiFetch(
-          'http://localhost:3000/businesses'
-        );
+        const businessList = await getAccessibleBusinesses(guard.isActive);
 
-        if (!businessesResponse.ok) {
-          throw new Error('Unable to fetch businesses');
+        if (!guard.isActive()) {
+          return;
         }
 
-        const businessesResult = await businessesResponse.json();
-        const businessList = businessesResult.data ?? [];
-
-        setBusinesses(businessList);
+        if (userRole === 'client') {
+          setBusinesses(businessList);
+        }
 
         const [purchaseResponses, customerResponses] =
           await Promise.all([
@@ -595,16 +1377,29 @@ const [appointmentActionLoading, setAppointmentActionLoading] =
             }))
         );
 
+        if (!guard.isActive()) {
+          return;
+        }
+
         setPurchases(allPurchases);
       } catch (error) {
-        setPurchaseError(error.message);
+        if (guard.isActive()) {
+          setPurchaseError(error.message);
+        }
       } finally {
-        setPurchaseLoading(false);
+        if (guard.isActive()) {
+          setPurchaseLoading(false);
+        }
       }
     }
 
     loadPurchases();
-  }, [activePage]);
+
+    return () => {
+      guard.cleanup();
+      setPurchaseLoading(false);
+    };
+  }, [activePage, userRole, userBusiness, selectedBusinessId]);
 
   // ============================================================
   // LOAD MESSAGE TEMPLATES
@@ -614,30 +1409,28 @@ const [appointmentActionLoading, setAppointmentActionLoading] =
   if (
   activePage !== 'Message Templates' &&
   activePage !== 'Review Automation' &&
-  activePage !== 'Appointments'
+  activePage !== 'Appointments' &&
+  activePage !== 'Customer Comeback'
 ) {
   return;
 }
+
+    const guard = createLoaderGuard();
 
     async function loadMessageTemplates() {
       setTemplateLoading(true);
       setTemplateError('');
 
       try {
-        const businessesResponse = await apiFetch(
-          'http://localhost:3000/businesses'
-        );
+        const businessList = await getAccessibleBusinesses(guard.isActive);
 
-        if (!businessesResponse.ok) {
-          throw new Error('Unable to load businesses');
+        if (!guard.isActive()) {
+          return;
         }
 
-        const businessesResult =
-          await businessesResponse.json();
-
-        const businessList = businessesResult.data ?? [];
-
-        setBusinesses(businessList);
+        if (userRole === 'client') {
+          setBusinesses(businessList);
+        }
 
         const templateResponses = await Promise.all(
           businessList.map((business) =>
@@ -667,43 +1460,51 @@ const [appointmentActionLoading, setAppointmentActionLoading] =
             }))
         );
 
+        if (!guard.isActive()) {
+          return;
+        }
+
         setMessageTemplates(allTemplates);
       } catch (error) {
-        setTemplateError(error.message);
+        if (guard.isActive()) {
+          setTemplateError(error.message);
+        }
       } finally {
-        setTemplateLoading(false);
+        if (guard.isActive()) {
+          setTemplateLoading(false);
+        }
       }
     }
 
     loadMessageTemplates();
-  }, [activePage]);
+
+    return () => {
+      guard.cleanup();
+      setTemplateLoading(false);
+    };
+  }, [activePage, userRole, userBusiness, selectedBusinessId]);
 
   // ============================================================
 // LOAD REVIEW AUTOMATION
 // ============================================================
 
 useEffect(() => {
-  if (activePage !== 'Review Automation') {
+  if (activePage !== 'Review Automation' && activePage !== 'Dashboard') {
     return;
   }
+
+  const guard = createLoaderGuard();
 
   async function loadReviewAutomation() {
     setReviewAutomationLoading(true);
     setReviewAutomationError('');
 
     try {
-      const businessesResponse = await apiFetch(
-        'http://localhost:3000/businesses'
-      );
+      const businessList = await getAccessibleBusinesses(guard.isActive);
 
-      if (!businessesResponse.ok) {
-        throw new Error('Unable to load businesses');
+      if (!guard.isActive()) {
+        return;
       }
-
-      const businessesResult =
-        await businessesResponse.json();
-
-      const businessList = businessesResult.data ?? [];
 
       const results = await Promise.all(
         businessList.map(async (business) => {
@@ -726,76 +1527,59 @@ useEffect(() => {
         })
       );
 
+      if (!guard.isActive()) {
+        return;
+      }
+
       setReviewAutomation(results);
+      const selected = results.find(
+        (item) => item.business.id === selectedReviewBusinessId
+      );
+      setReviewForm({
+        enabled: selected?.automation?.enabled ?? true,
+        delay_minutes: selected?.automation?.delay_minutes ?? 120,
+        template_id: selected?.automation?.template_id ?? '',
+      });
     } catch (error) {
-      setReviewAutomationError(error.message);
+      if (guard.isActive()) {
+        setReviewAutomationError(error.message);
+      }
     } finally {
-      setReviewAutomationLoading(false);
+      if (guard.isActive()) {
+        setReviewAutomationLoading(false);
+      }
     }
   }
 
   loadReviewAutomation();
-}, [activePage]);
 
-// ============================================================
-// SELECT REVIEW AUTOMATION
-// ============================================================
-
-useEffect(() => {
-  if (!selectedReviewBusinessId) {
-    return;
-  }
-
-  const selected = reviewAutomation?.find(
-    (item) =>
-      item.business.id === selectedReviewBusinessId
-  );
-
-  if (selected?.automation) {
-    setReviewForm({
-      enabled: selected.automation.enabled ?? true,
-      delay_minutes:
-        selected.automation.delay_minutes ?? 120,
-      template_id:
-        selected.automation.template_id ?? '',
-    });
-  } else {
-    setReviewForm({
-      enabled: true,
-      delay_minutes: 120,
-      template_id: '',
-    });
-  }
-
-  setReviewMessage('');
-}, [selectedReviewBusinessId, reviewAutomation]);
+  return () => {
+    guard.cleanup();
+    setReviewAutomationLoading(false);
+  };
+}, [activePage, userRole, userBusiness, selectedBusinessId]);
 
 // ============================================================
 // LOAD MESSAGES
 // ============================================================
 
 useEffect(() => {
-  if (activePage !== 'Messages') {
+  if (activePage !== 'Messages' && activePage !== 'Dashboard') {
     return;
   }
+
+  const guard = createLoaderGuard();
 
   async function loadMessages() {
     setMessageLoading(true);
     setMessageError('');
 
     try {
-      const businessesResponse = await apiFetch(
-        'http://localhost:3000/businesses'
-      );
+      const businessList = await getAccessibleBusinesses(guard.isActive);
 
-      if (!businessesResponse.ok) {
-        throw new Error('Unable to load businesses');
+      if (!guard.isActive()) {
+        return;
       }
-
-      const businessesResult =
-        await businessesResponse.json();
-
-      const businessList = businessesResult.data ?? [];
 
       const results = await Promise.all(
         businessList.map(async (business) => {
@@ -851,44 +1635,54 @@ useEffect(() => {
         }
       );
 
+      if (!guard.isActive()) {
+        return;
+      }
+
       setMessages(allMessages);
     } catch (error) {
-      setMessageError(error.message);
+      if (guard.isActive()) {
+        setMessageError(error.message);
+      }
     } finally {
-      setMessageLoading(false);
+      if (guard.isActive()) {
+        setMessageLoading(false);
+      }
     }
   }
 
   loadMessages();
-}, [activePage]);
+
+  return () => {
+    guard.cleanup();
+    setMessageLoading(false);
+  };
+}, [activePage, userRole, userBusiness, selectedBusinessId]);
 
 // LOAD CAMPAIGNS
   // ============================================================
 
   useEffect(() => {
-    if (activePage !== 'Campaigns') {
+    if (activePage !== 'Campaigns' && activePage !== 'Dashboard') {
       return;
     }
+
+    const guard = createLoaderGuard();
 
     async function loadCampaigns() {
       setCampaignLoading(true);
       setCampaignError('');
 
       try {
-        const businessesResponse = await apiFetch(
-          'http://localhost:3000/businesses'
-        );
+        const businessList = await getAccessibleBusinesses(guard.isActive);
 
-        if (!businessesResponse.ok) {
-          throw new Error('Unable to load businesses');
+        if (!guard.isActive()) {
+          return;
         }
 
-        const businessesResult =
-          await businessesResponse.json();
-
-        const businessList = businessesResult.data ?? [];
-
-        setBusinesses(businessList);
+        if (userRole === 'client') {
+          setBusinesses(businessList);
+        }
 
         const campaignResponses = await Promise.all(
           businessList.map((business) =>
@@ -912,6 +1706,31 @@ useEffect(() => {
           )
         );
 
+        const audienceCustomerResponses = await Promise.all(
+          businessList.map((business) =>
+            apiFetch(
+              `http://localhost:3000/customers?business_id=${business.id}`
+            )
+          )
+        );
+
+        if (audienceCustomerResponses.every((response) => response.ok)) {
+          const audienceCustomerResults = await Promise.all(
+            audienceCustomerResponses.map((response) => response.json())
+          );
+          const audienceCustomers = audienceCustomerResults.flatMap(
+            (result, index) =>
+              (result.data ?? []).map((customer) => ({
+                ...customer,
+                businessName: businessList[index].name,
+              }))
+          );
+
+          if (guard.isActive()) {
+            setCustomers(audienceCustomers);
+          }
+        }
+
         const allCampaigns =
           campaignResults.flatMap(
             (result, index) =>
@@ -922,43 +1741,55 @@ useEffect(() => {
               }))
           );
 
+        if (!guard.isActive()) {
+          return;
+        }
+
         setCampaigns(allCampaigns);
       } catch (error) {
-        setCampaignError(error.message);
+        if (guard.isActive()) {
+          setCampaignError(error.message);
+        }
       } finally {
-        setCampaignLoading(false);
+        if (guard.isActive()) {
+          setCampaignLoading(false);
+        }
       }
     }
 
     loadCampaigns();
-  }, [activePage]);
+
+    return () => {
+      guard.cleanup();
+      setCampaignLoading(false);
+    };
+  }, [activePage, userRole, userBusiness, selectedBusinessId]);
 
   // ============================================================
 // LOAD APPOINTMENTS
 // ============================================================
 
 useEffect(() => {
-  if (activePage !== 'Appointments') {
+  if (activePage !== 'Appointments' && activePage !== 'Dashboard') {
     return;
   }
+
+  const guard = createLoaderGuard();
 
   async function loadAppointments() {
     setAppointmentLoading(true);
     setAppointmentError('');
 
     try {
-      const businessesResponse = await apiFetch(
-        'http://localhost:3000/businesses'
-      );
+      const businessList = await getAccessibleBusinesses(guard.isActive);
 
-      if (!businessesResponse.ok) {
-        throw new Error('Unable to load businesses');
+      if (!guard.isActive()) {
+        return;
       }
 
-      const businessesResult = await businessesResponse.json();
-      const businessList = businessesResult.data ?? [];
-
-      setBusinesses(businessList);
+      if (userRole === 'client') {
+        setBusinesses(businessList);
+      }
 
       const appointmentResponses = await Promise.all(
         businessList.map((business) =>
@@ -984,16 +1815,29 @@ useEffect(() => {
           }))
       );
 
+      if (!guard.isActive()) {
+        return;
+      }
+
       setAppointments(allAppointments);
-    } catch (error) {
-      setAppointmentError(error.message);
+  } catch (error) {
+      if (guard.isActive()) {
+        setAppointmentError(error.message);
+      }
     } finally {
-      setAppointmentLoading(false);
+      if (guard.isActive()) {
+        setAppointmentLoading(false);
+      }
     }
   }
 
   loadAppointments();
-}, [activePage]);
+
+  return () => {
+    guard.cleanup();
+    setAppointmentLoading(false);
+  };
+}, [activePage, userRole, userBusiness, selectedBusinessId]);
 
 // ============================================================
 // ADD APPOINTMENT
@@ -1056,7 +1900,7 @@ async function handleAddAppointment(event) {
       appointment_date: '',
       appointment_time: '',
       appointment_type: '',
-      reminder_enabled: true,
+      reminder_enabled: false,
       reminder_minutes: 1440,
       template_id: '',
     });
@@ -1081,6 +1925,7 @@ function startEditingAppointment(appointment) {
     appointment_time: appointment.appointment_time || '',
     appointment_type: appointment.appointment_type || '',
     status: appointment.status || 'scheduled',
+    template_id: appointment.template_id || '',
   });
 
   setAppointmentMessage('');
@@ -1104,7 +1949,10 @@ async function handleEditAppointment(event) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(editAppointmentForm),
+        body: JSON.stringify({
+          ...editAppointmentForm,
+          template_id: editAppointmentForm.template_id || null,
+        }),
       }
     );
 
@@ -1128,6 +1976,37 @@ async function handleEditAppointment(event) {
 
     setAppointmentMessage('Appointment updated successfully!');
     setEditingAppointment(null);
+  } catch (error) {
+    setAppointmentMessage(error.message);
+  } finally {
+    setAppointmentActionLoading(false);
+  }
+}
+
+async function handleUpdateReminderSettings(appointment, changes) {
+  setAppointmentActionLoading(true);
+  setAppointmentMessage('');
+
+  try {
+    const response = await apiFetch(
+      `http://localhost:3000/appointments/${appointment.id}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(changes),
+      },
+    );
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.error || result.errors?.join(', ') || 'Unable to update reminder settings',
+      );
+    }
+
+    setAppointments((previous) => previous.map((item) => (
+      item.id === appointment.id ? { ...item, ...result.data } : item
+    )));
   } catch (error) {
     setAppointmentMessage(error.message);
   } finally {
@@ -1202,6 +2081,8 @@ async function handleCancelAppointment(appointment) {
     event.preventDefault();
     setBusinessSubmitting(true);
     setBusinessMessage('');
+    setBusinessMessageError(false);
+    setBusinessWarning('');
 
     try {
       const response = await apiFetch(
@@ -1223,7 +2104,7 @@ async function handleCancelAppointment(appointment) {
         );
       }
 
-      setBusinesses((previous) => [result.data, ...previous]);
+      setBusinesses((previous) => applyBusinessMutation(previous, 'create', result.data));
       setBusinessCount((previous) => previous + 1);
       setNewBusiness({
         name: '',
@@ -1233,8 +2114,12 @@ async function handleCancelAppointment(appointment) {
         google_review_link: '',
       });
       setBusinessMessage('Business added successfully!');
+      setBusinessMessageError(false);
+      setBusinessWarning(getBusinessAuditWarning(result));
     } catch (error) {
       setBusinessMessage(error.message);
+      setBusinessMessageError(true);
+      setBusinessWarning('');
     } finally {
       setBusinessSubmitting(false);
     }
@@ -1261,6 +2146,8 @@ async function handleCancelAppointment(appointment) {
 
     setBusinessActionLoading(true);
     setBusinessMessage('');
+    setBusinessMessageError(false);
+    setBusinessWarning('');
 
     try {
       const response = await apiFetch(
@@ -1282,17 +2169,15 @@ async function handleCancelAppointment(appointment) {
         );
       }
 
-      setBusinesses((previous) =>
-        previous.map((business) =>
-          business.id === editingBusiness.id
-            ? { ...business, ...result.data }
-            : business
-        )
-      );
+      setBusinesses((previous) => applyBusinessMutation(previous, 'update', result.data));
       setBusinessMessage('Business updated successfully!');
+      setBusinessMessageError(false);
+      setBusinessWarning(getBusinessAuditWarning(result));
       setEditingBusiness(null);
     } catch (error) {
       setBusinessMessage(error.message);
+      setBusinessMessageError(true);
+      setBusinessWarning('');
     } finally {
       setBusinessActionLoading(false);
     }
@@ -1309,6 +2194,8 @@ async function handleCancelAppointment(appointment) {
 
     setBusinessActionLoading(true);
     setBusinessMessage('');
+    setBusinessMessageError(false);
+    setBusinessWarning('');
 
     try {
       const response = await apiFetch(
@@ -1316,23 +2203,23 @@ async function handleCancelAppointment(appointment) {
         { method: 'DELETE' }
       );
 
+      let result = null;
+      if (response.status !== 204) {
+        result = await response.json();
+      }
+
       if (!response.ok) {
         let errorMessage = 'Unable to delete business';
-        try {
-          const result = await response.json();
+        if (result) {
           errorMessage =
             result.error ||
             result.errors?.join(', ') ||
             errorMessage;
-        } catch {
-          // DELETE may return 204 No Content.
         }
         throw new Error(errorMessage);
       }
 
-      setBusinesses((previous) =>
-        previous.filter((item) => item.id !== business.id)
-      );
+      setBusinesses((previous) => applyBusinessMutation(previous, 'delete', business));
       setBusinessCount((previous) => Math.max(0, previous - 1));
 
       if (editingBusiness?.id === business.id) {
@@ -1340,8 +2227,12 @@ async function handleCancelAppointment(appointment) {
       }
 
       setBusinessMessage('Business deleted successfully!');
+      setBusinessMessageError(false);
+      setBusinessWarning(getBusinessAuditWarning(result));
     } catch (error) {
       setBusinessMessage(error.message);
+      setBusinessMessageError(true);
+      setBusinessWarning('');
     } finally {
       setBusinessActionLoading(false);
     }
@@ -1408,6 +2299,88 @@ async function handleCancelAppointment(appointment) {
     } finally {
       setCustomerSubmitting(false);
     }
+  }
+
+  async function handleCreateCustomerForAppointment(customerValues) {
+    const response = await apiFetch(
+      'http://localhost:3000/customers',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(customerValues),
+      },
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.error ||
+          result.errors?.join(', ') ||
+          'Unable to create customer',
+      );
+    }
+
+    const selectedBusiness = businesses.find(
+      (business) => business.id === customerValues.business_id,
+    );
+    const customer = {
+      ...result.data,
+      businessName: selectedBusiness?.name || '',
+    };
+
+    setCustomers((previous) => [customer, ...previous]);
+    setCustomerCount((previous) => previous + 1);
+
+    return customer;
+  }
+
+  async function handleImportCustomers({ businessId, rows }) {
+    const response = await apiFetch(
+      'http://localhost:3000/customers/import',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          business_id: businessId,
+          rows,
+        }),
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.error ||
+          result.errors?.join(', ') ||
+          'Unable to import customers'
+      );
+    }
+
+    const selectedBusiness = businesses.find(
+      (business) => business.id === businessId
+    );
+    const importedCustomers = (result.data ?? [])
+      .filter((outcome) => outcome.status === 'imported' && outcome.customer)
+      .map((outcome) => ({
+        ...outcome.customer,
+        businessName: selectedBusiness?.name || '',
+      }));
+
+    if (importedCustomers.length > 0) {
+      setCustomers((previous) => [
+        ...importedCustomers,
+        ...previous,
+      ]);
+      setCustomerCount((previous) => previous + importedCustomers.length);
+    }
+
+    return result;
   }
 
   // ============================================================
@@ -1820,6 +2793,7 @@ async function handleCancelAppointment(appointment) {
         name: '',
         category: '',
         message: '',
+        metadata: { language: 'en', buttons: [] },
       });
 
       setTemplateMessage(
@@ -2110,8 +3084,15 @@ function startEditingTemplate(template) {
 
   setEditTemplateForm({
     name: template.name || '',
-    category: template.category || '',
+    category: template.metadata?.meta_category || template.category || '',
     message: template.message || '',
+    metadata: {
+      language: template.metadata?.language || 'en',
+      meta_template_name: template.metadata?.meta_template_name || '',
+      header: template.metadata?.header || '',
+      footer: template.metadata?.footer || '',
+      buttons: Array.isArray(template.metadata?.buttons) ? template.metadata.buttons : [],
+    },
   });
 
   setTemplateMessage('');
@@ -2177,28 +3158,52 @@ async function handleDeleteTemplate(template) {
   // DASHBOARD STATS
   // ============================================================
 
-  const stats = [
-    {
-      label: 'Total Businesses',
-      value: String(businessCount),
-      icon: '🏢',
-    },
-    {
-      label: 'Total Customers',
-      value: String(customerCount),
-      icon: '👥',
-    },
-    {
-      label: 'Campaigns',
-      value: String(campaignCount),
-      icon: '📣',
-    },
-    {
-      label: 'Messages Sent',
-      value: String(sentMessageCount),
-      icon: '✉️',
-    },
-  ];
+  const stats =
+    userRole === 'admin'
+      ? [
+          {
+            label: 'Total Businesses',
+            value: String(businessCount),
+            icon: '🏢',
+          },
+          {
+            label: 'Total Customers',
+            value: String(customerCount),
+            icon: '👥',
+          },
+          {
+            label: 'Campaigns',
+            value: String(campaignCount),
+            icon: '📣',
+          },
+          {
+            label: 'Messages Sent',
+            value: String(sentMessageCount),
+            icon: '✉️',
+          },
+        ]
+      : [
+          {
+            label: 'Total Customers',
+            value: String(customerCount),
+            icon: '👥',
+          },
+          {
+            label: 'Purchases',
+            value: String(purchaseCount),
+            icon: '🛍',
+          },
+          {
+            label: 'Campaigns',
+            value: String(campaignCount),
+            icon: '📣',
+          },
+          {
+            label: 'Messages Sent',
+            value: String(sentMessageCount),
+            icon: '✉️',
+          },
+        ];
 
   async function handleSaveReviewAutomation(event) {
   event.preventDefault();
@@ -2278,6 +3283,81 @@ async function handleDeleteTemplate(template) {
   }
 }
 
+async function loadAllBusinesses(isActive = () => true) {
+  if (!businessLoadRef.current) {
+    setBusinessLoading(true);
+    setBusinessError('');
+
+    const request = (async () => {
+      const response = await apiFetch(
+        'http://localhost:3000/businesses'
+      );
+
+      if (!response.ok) {
+        throw new Error('Unable to load businesses');
+      }
+
+      const result = await response.json();
+      return result.data ?? [];
+    })();
+
+    businessLoadRef.current = request;
+    request.then(
+      () => {
+        if (businessLoadRef.current === request) {
+          businessLoadRef.current = null;
+          setBusinessLoading(false);
+        }
+      },
+      () => {
+        if (businessLoadRef.current === request) {
+          businessLoadRef.current = null;
+          setBusinessLoading(false);
+        }
+      }
+    );
+  }
+
+  try {
+    const businessList = await businessLoadRef.current;
+
+    if (isActive()) {
+      setBusinesses(businessList);
+      setBusinessCount(businessList.length);
+      setBusinessAccessVerified(true);
+    }
+
+    return businessList;
+  } catch (error) {
+    if (isActive()) {
+      setBusinessAccessVerified(false);
+      setBusinessError(error.message);
+    }
+
+    throw error;
+  }
+}
+
+async function getAccessibleBusinesses(isActive = () => true) {
+  if (userRole === 'client') {
+    return businesses.length
+      ? businesses
+      : (userBusiness ? [userBusiness] : []);
+  }
+
+  const businessList = businesses.length
+    ? businesses
+    : await loadAllBusinesses(isActive);
+
+  if (!selectedBusinessId) {
+    return businessList;
+  }
+
+  return businessList.filter(
+    (business) => business.id === selectedBusinessId
+  );
+}
+
   async function handleLogout() {
     const { error } = await supabase.auth.signOut();
 
@@ -2298,6 +3378,10 @@ if (!session) {
   return <Login />;
 }
 
+if (!userRole) {
+  return <div>Loading workspace...</div>;
+}
+
 return (
     <div className="app">
       <aside className="sidebar">
@@ -2313,7 +3397,14 @@ return (
         <div className="menu-heading">WORKSPACE</div>
 
         <nav className="navigation">
-          {menuItems.map((item) => (
+          {(userRole === 'admin'
+  ? adminMenuItems
+  : clientMenuItems
+ ).filter((item) => (
+   (item !== 'Business Members' || userRole === 'admin' || canManageMemberships)
+   && (item !== 'WhatsApp Settings' || canManageWhatsApp)
+   && canAccessPage(item)
+ )).map((item) => (
             <button
               key={item}
               className={`nav-item ${
@@ -2329,6 +3420,7 @@ return (
               {item === 'Campaigns' && '↗'}
               {item === 'Review Automation' && '☆'}
               {item === 'Messages' && '✉'}
+              {item === 'WhatsApp Settings' && '◉'}
 
               <span>{item}</span>
             </button>
@@ -2336,11 +3428,22 @@ return (
         </nav>
 
         <div className="sidebar-footer">
-  <div className="avatar">D</div>
+  <div className="avatar">
+    {userRole === 'admin' ? 'A' : 'C'}
+  </div>
 
   <div>
-    <strong>Platform Admin</strong>
-    <span>Administrator</span>
+    <strong>
+      {userRole === 'admin'
+        ? 'Platform Admin'
+        : userBusiness?.name || 'Client'}
+    </strong>
+
+    <span>
+      {userRole === 'admin'
+        ? 'Administrator'
+        : 'Client'}
+    </span>
 
     <button
       type="button"
@@ -2373,17 +3476,61 @@ return (
 
           <div className="admin-badge">
             <span className="status-dot" />
-            Admin Workspace
+            {userRole === 'admin'
+              ? 'Admin Workspace'
+              : userBusiness?.name
+                ? `${userBusiness.name} Workspace`
+                : 'Client Workspace'}
           </div>
+
+          {userRole === 'admin' && (
+            <div style={{ marginLeft: '16px' }}>
+              {businessLoading ? (
+                <span aria-live="polite">Loading businesses...</span>
+              ) : businessError ? (
+                <span role="alert">
+                  {businessError}
+                </span>
+              ) : businesses.length === 0 ? (
+                <span>No businesses available.</span>
+              ) : (
+                <label>
+                  <span className="sr-only">Business view</span>
+                  <select
+                    value={selectedBusinessId}
+                    onChange={(event) =>
+                      setSelectedBusinessId(event.target.value)
+                    }
+                    aria-label="Business view"
+                  >
+                    <option value="">All businesses</option>
+                    {businesses.map((business) => (
+                      <option key={business.id} value={business.id}>
+                        {business.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
         </header>
 
-      {activePage === 'Dashboard' ? (
-  <Dashboard
-    stats={stats}
-    backendStatus={backendStatus}
-    setActivePage={setActivePage}
-  />
-
+{activePage === 'Dashboard' ? (
+    <Dashboard
+      stats={stats}
+      backendStatus={backendStatus}
+      setActivePage={setActivePage}
+      showWhatsAppAction={canManageWhatsApp}
+      activeBusinessId={selectedBusinessId}
+      businesses={businesses}
+      customers={customers}
+      appointments={appointments}
+      messages={messages}
+      campaigns={campaigns}
+      reviewAutomation={reviewAutomation}
+      reviewForm={reviewForm}
+    />
 ) : activePage === 'Businesses' ? (
   <Businesses
     businesses={businesses}
@@ -2393,6 +3540,8 @@ return (
     setNewBusiness={setNewBusiness}
     businessSubmitting={businessSubmitting}
     businessMessage={businessMessage}
+    businessMessageError={businessMessageError}
+    businessWarning={businessWarning}
     handleAddBusiness={handleAddBusiness}
     editingBusiness={editingBusiness}
     editBusinessForm={editBusinessForm}
@@ -2413,7 +3562,9 @@ return (
     setNewCustomer={setNewCustomer}
     customerSubmitting={customerSubmitting}
     customerMessage={customerMessage}
+    setCustomerMessage={setCustomerMessage}
     handleAddCustomer={handleAddCustomer}
+    handleImportCustomers={handleImportCustomers}
     editingCustomer={editingCustomer}
     editCustomerForm={editCustomerForm}
     setEditCustomerForm={setEditCustomerForm}
@@ -2421,10 +3572,23 @@ return (
     handleEditCustomer={handleEditCustomer}
     setEditingCustomer={setEditingCustomer}
     startEditingCustomer={startEditingCustomer}
-    handleDeleteCustomer={handleDeleteCustomer}
-    />
+     handleDeleteCustomer={handleDeleteCustomer}
+     />
 
-   ) : activePage === 'Purchases' ? (
+   ) : activePage === 'Customer Comeback' ? (
+  <CustomerComeback
+    customers={comebackCustomers}
+    businesses={businesses}
+    messageTemplates={messageTemplates}
+    templateLoading={templateLoading}
+    templateError={templateError}
+    inactivityDays={inactivityDays}
+    setInactivityDays={setInactivityDays}
+    customerLoading={comebackLoading}
+    customerError={comebackError}
+  />
+
+    ) : activePage === 'Purchases' ? (
   <Purchases
     businesses={businesses}
     customers={customers}
@@ -2469,6 +3633,7 @@ return (
 ) : activePage === 'Campaigns' ? (
   <Campaigns
     businesses={businesses}
+    customers={customers}
     messageTemplates={messageTemplates}
     campaigns={campaigns}
     campaignLoading={campaignLoading}
@@ -2496,7 +3661,7 @@ return (
       selectedReviewBusinessId
     }
     setSelectedReviewBusinessId={
-      setSelectedReviewBusinessId
+      handleSelectedReviewBusinessChange
     }
     reviewForm={reviewForm}
     setReviewForm={setReviewForm}
@@ -2526,21 +3691,68 @@ return (
     appointmentSubmitting={appointmentSubmitting}
     appointmentMessage={appointmentMessage}
     handleAddAppointment={handleAddAppointment}
+    handleCreateCustomer={handleCreateCustomerForAppointment}
     editingAppointment={editingAppointment}
     editAppointmentForm={editAppointmentForm}
     setEditAppointmentForm={setEditAppointmentForm}
     appointmentActionLoading={appointmentActionLoading}
+    templateLoading={templateLoading}
+    templateError={templateError}
     handleEditAppointment={handleEditAppointment}
+    handleUpdateReminderSettings={handleUpdateReminderSettings}
     setEditingAppointment={setEditingAppointment}
     startEditingAppointment={startEditingAppointment}
     handleCancelAppointment={handleCancelAppointment}
   />
+) : activePage === 'Chats' ? (
+  <Chats
+    businesses={businesses}
+    businessLoading={businessLoading}
+    businessError={businessError}
+    userRole={userRole}
+    userBusiness={userBusiness}
+    selectedBusinessId={selectedBusinessId}
+  />
+
 ) : activePage === 'Messages' ? (
   <Messages
     messages={messages}
     messageLoading={messageLoading}
     messageError={messageError}
   />
+
+  ) : activePage === 'WhatsApp Settings' ? (
+  <WhatsAppSettings
+    businessId={userRole === 'admin' ? selectedBusinessId : userBusiness?.id}
+    businessName={userRole === 'admin'
+      ? businesses.find((business) => business.id === selectedBusinessId)?.name
+      : userBusiness?.name}
+  />
+
+  ) : activePage === 'User Profiles' ? (
+ <UserProfiles
+  userProfiles={userProfiles}
+  userProfileLoading={userProfileLoading}
+  userProfileError={userProfileError}
+  businesses={businesses}
+/>
+
+) : activePage === 'Business Members' ? (
+ <BusinessMemberships
+  businesses={businesses}
+  businessLoading={businessLoading}
+  businessError={businessError}
+  userRole={userRole}
+  userBusiness={userBusiness}
+  selectedBusinessId={selectedBusinessId}
+  userProfiles={userProfiles}
+  userProfileLoading={userProfileLoading}
+  userProfileError={userProfileError}
+  authorizedBusinessIds={membershipAuthorizedBusinessIds}
+  membershipAuthorizationLoading={membershipAuthorizationLoading}
+  membershipAuthorizationError={membershipAuthorizationError}
+  canManageMemberships={canManageMemberships}
+ />
 
 ) : (
   <section className="placeholder-page">
@@ -2572,4 +3784,4 @@ return (
   );
 }
 
-export default App;
+export default App

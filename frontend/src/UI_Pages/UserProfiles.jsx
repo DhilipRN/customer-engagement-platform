@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { apiFetch } from '../api';
 
 function UserProfiles({
@@ -7,20 +7,43 @@ function UserProfiles({
   userProfileError,
   businesses = [],
 }) {
-  const [assignedBusinesses, setAssignedBusinesses] = useState({});
+  const [assignedBusinessOverrides, setAssignedBusinessOverrides] =
+    useState({});
+  const [membershipRoleOverrides, setMembershipRoleOverrides] =
+    useState({});
 
-  useEffect(() => {
+  const assignedBusinesses = useMemo(() => {
     const assignments = {};
 
     userProfiles.forEach((profile) => {
-      assignments[profile.id] = profile.business_id || '';
+      assignments[profile.id] =
+        assignedBusinessOverrides[profile.id] ??
+        profile.business_id ??
+        '';
     });
 
-    setAssignedBusinesses(assignments);
-  }, [userProfiles]);
+    return assignments;
+  }, [assignedBusinessOverrides, userProfiles]);
 
-  async function handleBusinessChange(userId, businessId) {
-    if (!businessId) {
+  const membershipRoles = useMemo(() => {
+    const roles = {};
+
+    userProfiles.forEach((profile) => {
+      roles[profile.id] =
+        membershipRoleOverrides[profile.id] ??
+        profile.membership_role ??
+        'receptionist';
+    });
+
+    return roles;
+  }, [membershipRoleOverrides, userProfiles]);
+
+  async function handleAssignmentChange(
+    userId,
+    businessId,
+    membershipRole
+  ) {
+    if (!businessId || !membershipRole) {
       return;
     }
 
@@ -34,6 +57,7 @@ function UserProfiles({
           },
           body: JSON.stringify({
             business_id: businessId,
+            membership_role: membershipRole,
           }),
         }
       );
@@ -42,16 +66,22 @@ function UserProfiles({
 
       if (!response.ok) {
         throw new Error(
-          result.error || 'Unable to assign business'
+          result.error || 'Unable to update business assignment.'
         );
       }
 
-      setAssignedBusinesses((previous) => ({
+      // Update the UI only after the backend confirms success.
+      setAssignedBusinessOverrides((previous) => ({
         ...previous,
         [userId]: businessId,
       }));
+
+      setMembershipRoleOverrides((previous) => ({
+        ...previous,
+        [userId]: membershipRole,
+      }));
     } catch (error) {
-      alert(error.message);
+      alert(error.message || 'Unable to update business assignment.');
     }
   }
 
@@ -64,13 +94,9 @@ function UserProfiles({
         </div>
       </div>
 
-      {userProfileLoading && (
-        <p>Loading user profiles...</p>
-      )}
+      {userProfileLoading && <p>Loading user profiles...</p>}
 
-      {userProfileError && (
-        <p>{userProfileError}</p>
-      )}
+      {userProfileError && <p>{userProfileError}</p>}
 
       {!userProfileLoading &&
         !userProfileError &&
@@ -82,12 +108,13 @@ function UserProfiles({
         !userProfileError &&
         userProfiles.length > 0 && (
           <div className="table-container">
-            <table>
+            <table className="user-profiles-table">
               <thead>
                 <tr>
                   <th>Email</th>
                   <th>Role</th>
                   <th>Business</th>
+                  <th>Membership Role</th>
                   <th>Created</th>
                 </tr>
               </thead>
@@ -102,19 +129,16 @@ function UserProfiles({
                     <td>
                       {profile.role === 'client' ? (
                         <select
-                          value={
-                            assignedBusinesses[profile.id] || ''
-                          }
+                          value={assignedBusinesses[profile.id] || ''}
                           onChange={(event) =>
-                            handleBusinessChange(
+                            handleAssignmentChange(
                               profile.id,
-                              event.target.value
+                              event.target.value,
+                              membershipRoles[profile.id]
                             )
                           }
                         >
-                          <option value="">
-                            Select business
-                          </option>
+                          <option value="">Select business</option>
 
                           {businesses.map((business) => (
                             <option
@@ -127,6 +151,29 @@ function UserProfiles({
                         </select>
                       ) : (
                         'Not applicable'
+                      )}
+                    </td>
+
+                    <td>
+                      {profile.role === 'client' ? (
+                        <select
+                          value={membershipRoles[profile.id]}
+                          onChange={(event) =>
+                            handleAssignmentChange(
+                              profile.id,
+                              assignedBusinesses[profile.id],
+                              event.target.value
+                            )
+                          }
+                          disabled={!assignedBusinesses[profile.id]}
+                        >
+                          <option value="receptionist">
+                            Receptionist
+                          </option>
+                          <option value="owner">Owner</option>
+                        </select>
+                      ) : (
+                        '—'
                       )}
                     </td>
 

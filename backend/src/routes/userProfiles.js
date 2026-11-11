@@ -1,7 +1,7 @@
 import express from 'express';
 import { requireAdmin } from '../middleware/auth.js';
 
-export function createUserProfilesRouter({ supabaseClient }) {
+export function createUserProfilesRouter({ supabaseClient } = {}) {
   const router = express.Router();
 
 router.get('/', requireAdmin, async (_request, response) => {
@@ -14,6 +14,16 @@ router.get('/', requireAdmin, async (_request, response) => {
   if (profileError) {
     return response.status(500).json({
       error: 'Unable to fetch user profiles.',
+    });
+  }
+
+  const { data: memberships, error: membershipsError } = await supabaseClient
+    .from('business_memberships')
+    .select('user_id, business_id, role');
+
+  if (membershipsError) {
+    return response.status(500).json({
+      error: 'Unable to fetch user memberships.',
     });
   }
 
@@ -39,6 +49,12 @@ router.get('/', requireAdmin, async (_request, response) => {
     return {
       ...profile,
       email: user?.email ?? '',
+      membership_role:
+        memberships?.find(
+          (membership) =>
+            membership.user_id === profile.id &&
+            membership.business_id === profile.business_id,
+        )?.role ?? null,
     };
   });
 
@@ -49,11 +65,17 @@ router.get('/', requireAdmin, async (_request, response) => {
 
   router.put('/:id/business', requireAdmin, async (request, response) => {
     const { id } = request.params;
-    const { business_id } = request.body;
+    const { business_id, membership_role = 'receptionist' } = request.body;
 
     if (!business_id) {
       return response.status(400).json({
         error: 'business_id is required.',
+      });
+    }
+
+    if (!['receptionist', 'owner'].includes(membership_role)) {
+      return response.status(400).json({
+        error: 'membership_role must be either receptionist or owner.',
       });
     }
 
@@ -89,17 +111,36 @@ router.get('/', requireAdmin, async (_request, response) => {
       });
     }
 
-    const { data, error } = await supabaseClient
-      .from('profiles')
-      .update({
-        business_id,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .select('id, role, business_id, created_at, updated_at')
-      .single();
+    const { data, error } = await supabaseClient.rpc(
+      'assign_client_profile_business',
+      {
+        p_profile_id: id,
+        p_business_id: business_id,
+        p_expected_business_id: profile.business_id ?? null,
+        p_actor_user_id: request.user?.id ?? null,
+        p_membership_role: membership_role,
+      },
+    );
 
     if (error) {
+      if (error.code === 'P0004') {
+        return response.status(409).json({
+          error: 'Business assignment changed. Please refresh and try again.',
+        });
+      }
+
+      if (error.code === 'P0001') {
+        return response.status(409).json({
+          error:
+            'Cannot change this membership because the business must retain at least one owner. Assign another owner first.',
+        });
+      }
+
+      console.error('Business assignment RPC failed:', {
+        code: error?.code ?? null,
+        message: error?.message ?? 'Unknown RPC error',
+      });
+
       return response.status(500).json({
         error: 'Unable to assign business.',
       });

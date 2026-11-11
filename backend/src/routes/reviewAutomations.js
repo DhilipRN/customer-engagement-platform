@@ -5,7 +5,8 @@ import { createMessageService } from '../services/messages.js';
 import { createBusinessService } from '../services/businesses.js';
 import { createMessageTemplateService } from '../services/messageTemplates.js';
 import { createReviewAutomationService } from '../services/reviewAutomations.js';
-import { requireBusinessAccess } from '../middleware/auth.js';
+import { createActivityEventService } from '../services/activityEvents.js';
+import { createBusinessPermissionMiddleware, getAuthorizedBusinessId, requireBusinessAccess } from '../middleware/auth.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -19,6 +20,27 @@ const databaseError = (response, error) => {
   });
 };
 
+const AUDITED_AUTOMATION_FIELDS = [
+  'enabled',
+  'delay_minutes',
+  'template_id',
+];
+
+function auditSnapshot(automation) {
+  return Object.fromEntries(
+    AUDITED_AUTOMATION_FIELDS
+      .filter((field) => Object.prototype.hasOwnProperty.call(automation, field))
+      .map((field) => [field, automation[field]])
+  );
+}
+
+function sendAuditError(response, error) {
+  console.error('Unable to record review-automation activity event:', error?.message ?? error);
+  return response.status(500).json({
+    error: 'Review automation operation succeeded, but its audit event could not be recorded.',
+  });
+}
+
 export function createReviewAutomationsRouter({
   reviewAutomationService,
   businessService,
@@ -26,8 +48,14 @@ export function createReviewAutomationsRouter({
   customerService,
   purchaseService,
   messageService,
+  activityEventService,
+  businessAccessMiddleware,
+  permissionService,
 } = {}) {
   const router = Router();
+  const accessMiddleware = businessAccessMiddleware ?? requireBusinessAccess;
+  const requireViewAutomations = createBusinessPermissionMiddleware({ permissionService, permission: 'view_automations', permissionError: 'You do not have permission to view automations.', lookupError: 'Unable to verify automation access.' });
+  const requireManageAutomations = createBusinessPermissionMiddleware({ permissionService, permission: 'manage_automations', permissionError: 'You do not have permission to manage automations.', lookupError: 'Unable to verify automation access.' });
 
 let automations = reviewAutomationService;
 let businesses = businessService;
@@ -35,6 +63,7 @@ let templates = messageTemplateService;
 let customers = customerService;
 let purchases = purchaseService;
 let messages = messageService;
+let activityEvents = activityEventService;
 
   const getAutomations = () =>
     (automations ??= createReviewAutomationService());
@@ -53,6 +82,35 @@ let messages = messageService;
 
   const getMessages = () =>
     (messages ??= createMessageService());
+
+  const getActivityEvents = () =>
+    (activityEvents ??= createActivityEventService());
+
+  async function recordAutomationEvent(request, automation, eventType, fields = {}) {
+    try {
+      const result = await getActivityEvents().create({
+        scope_type: 'business',
+        business_id: automation.business_id,
+        actor_user_id: request.user?.id ?? null,
+        actor_type: 'user',
+        event_type: eventType,
+        entity_type: 'review_automation',
+        entity_id: automation.id,
+        customer_id: null,
+        is_reconstructed: false,
+        visibility: 'audit_only',
+        ...fields,
+      });
+
+      if (result?.error) return result;
+      if (!result?.data) {
+        return { data: null, error: new Error('Activity event persistence returned no record.') };
+      }
+      return result;
+    } catch (error) {
+      return { data: null, error };
+    }
+  }
 
   async function validateParents(businessId, templateId, response) {
     const business = await getBusinesses().findById(businessId);
@@ -97,7 +155,7 @@ let messages = messageService;
     return true;
   }
 
-  router.get('/', requireBusinessAccess, async (request, response) => {
+  router.get('/', accessMiddleware, requireViewAutomations, async (request, response) => {
     const businessId = request.query.business_id;
 
     if (!validId(businessId)) {
@@ -120,7 +178,7 @@ let messages = messageService;
 
     // List customers, purchases, and review-request history
   // for the selected business.
-  router.get('/selected-customers', requireBusinessAccess, async (request, response) => {
+  router.get('/selected-customers', accessMiddleware, requireViewAutomations, async (request, response) => {
     const businessId = request.query.business_id;
 
     if (!validId(businessId)) {
@@ -200,7 +258,7 @@ let messages = messageService;
   });
 
     // Schedule review requests for selected customers.
-  router.post('/selected-requests', requireBusinessAccess, async (request, response) => {
+  router.post('/selected-requests', accessMiddleware, requireManageAutomations, async (request, response) => {
     const {
       business_id: businessId,
       customer_ids: customerIds,
@@ -444,17 +502,21 @@ let messages = messageService;
     return response.status(201).json({ data: results });
   });
 
-  router.get('/:id', requireBusinessAccess, async (request, response) => {
+  router.get('/:id', accessMiddleware, requireViewAutomations, async (request, response) => {
     if (!validId(request.params.id)) {
       return response.status(400).json({
         error: 'review automation id must be a valid UUID.',
       });
     }
 
+    const businessScope = request.profile?.role === 'admin' ? null : getAuthorizedBusinessId(request);
+    if (request.profile && request.profile.role !== 'admin' && !businessScope) {
+      return response.status(403).json({ error: 'An authorized business context is required.' });
+    }
     const { data, error } =
       await getAutomations().findById(
         request.params.id,
-        request.profile?.role === 'client' ? request.profile.business_id : null,
+        businessScope,
       );
 
     if (error) {
@@ -468,7 +530,7 @@ let messages = messageService;
         });
   });
 
-  router.post('/', requireBusinessAccess, async (request, response) => {
+  router.post('/', accessMiddleware, requireManageAutomations, async (request, response) => {
     const {
       business_id,
       enabled,
@@ -521,21 +583,30 @@ let messages = messageService;
     const { data, error } =
       await getAutomations().create(values);
 
-    return error
-      ? databaseError(response, error)
-      : response.status(201).json({ data });
+    if (error) return databaseError(response, error);
+
+    const auditResult = await recordAutomationEvent(
+      request,
+      data,
+      'review_automation.created',
+      { after: auditSnapshot(data) },
+    );
+    if (auditResult.error) return sendAuditError(response, auditResult.error);
+
+    return response.status(201).json({ data });
   });
 
-  router.put('/:id', requireBusinessAccess, async (request, response) => {
+  router.put('/:id', accessMiddleware, requireManageAutomations, async (request, response) => {
     if (!validId(request.params.id)) {
       return response.status(400).json({
         error: 'review automation id must be a valid UUID.',
       });
     }
 
-    const businessId = request.profile?.role === 'client'
-      ? request.profile.business_id
-      : null;
+    const businessId = request.profile?.role === 'admin' ? null : getAuthorizedBusinessId(request);
+    if (request.profile && request.profile.role !== 'admin' && !businessId) {
+      return response.status(403).json({ error: 'An authorized business context is required.' });
+    }
     const existing =
       await getAutomations().findById(request.params.id, businessId);
 
@@ -595,6 +666,8 @@ let messages = messageService;
       return response.status(400).json({ errors });
     }
 
+    const before = auditSnapshot(existing.data);
+
     if (
       values.template_id &&
       !(await validateParents(
@@ -619,33 +692,80 @@ let messages = messageService;
       });
     }
 
-    return error
-      ? databaseError(response, error)
-      : response.status(200).json({ data });
+    if (error) return databaseError(response, error);
+
+    const after = auditSnapshot(data);
+    const enabledChanged = before.enabled !== after.enabled;
+    const changedFields = AUDITED_AUTOMATION_FIELDS.filter(
+      (field) => field !== 'enabled' && before[field] !== after[field]
+    );
+
+    if (changedFields.length || enabledChanged) {
+      const eventType = enabledChanged
+        ? (after.enabled ? 'review_automation.enabled' : 'review_automation.disabled')
+        : 'review_automation.updated';
+      const fields = enabledChanged
+        ? AUDITED_AUTOMATION_FIELDS.filter((field) => before[field] !== after[field])
+        : changedFields;
+      const auditResult = await recordAutomationEvent(
+        request,
+        data,
+        eventType,
+        {
+          before: Object.fromEntries(fields.map((field) => [field, before[field]])),
+          after: Object.fromEntries(fields.map((field) => [field, after[field]])),
+        },
+      );
+      if (auditResult.error) return sendAuditError(response, auditResult.error);
+    }
+
+    return response.status(200).json({ data });
   });
 
-  router.delete('/:id', requireBusinessAccess, async (request, response) => {
+  router.delete('/:id', accessMiddleware, requireManageAutomations, async (request, response) => {
     if (!validId(request.params.id)) {
       return response.status(400).json({
         error: 'review automation id must be a valid UUID.',
       });
     }
 
+    const businessScope = request.profile?.role === 'admin' ? null : getAuthorizedBusinessId(request);
+    if (request.profile && request.profile.role !== 'admin' && !businessScope) {
+      return response.status(403).json({ error: 'An authorized business context is required.' });
+    }
+    const existing = await getAutomations().findById(request.params.id, businessScope);
+    if (existing.error) return databaseError(response, existing.error);
+    if (!existing.data) {
+      return response.status(404).json({
+        error: 'Review automation not found.',
+      });
+    }
+
     const { data, error } =
       await getAutomations().remove(
         request.params.id,
-        request.profile?.role === 'client' ? request.profile.business_id : null,
+        businessScope,
       );
 
     if (error) {
       return databaseError(response, error);
     }
 
-    return data
-      ? response.status(204).send()
-      : response.status(404).json({
-          error: 'Review automation not found.',
-        });
+    if (!data) {
+      return response.status(404).json({
+        error: 'Review automation not found.',
+      });
+    }
+
+    const auditResult = await recordAutomationEvent(
+      request,
+      existing.data,
+      'review_automation.deleted',
+      { before: auditSnapshot(existing.data) },
+    );
+    if (auditResult.error) return sendAuditError(response, auditResult.error);
+
+    return response.status(204).send();
   });
 
   return router;

@@ -8,6 +8,8 @@ function Businesses({
   setNewBusiness,
   businessSubmitting,
   businessMessage,
+  businessMessageError,
+  businessWarning,
   handleAddBusiness,
   editingBusiness,
   editBusinessForm,
@@ -169,7 +171,16 @@ function Businesses({
         </div>
 
         {businessMessage && (
-          <p>{businessMessage}</p>
+          <p
+            className={businessMessageError ? 'error-message' : 'success-message'}
+            role={businessMessageError ? 'alert' : 'status'}
+          >
+            {businessMessage}
+          </p>
+        )}
+
+        {businessWarning && (
+          <p className="warning-message" role="status">{businessWarning}</p>
         )}
       </form>
 

@@ -6,7 +6,8 @@ import { createPurchaseService } from '../services/purchases.js';
 import { createReviewAutomationService } from '../services/reviewAutomations.js';
 import { createMessageTemplateService } from '../services/messageTemplates.js';
 import { createMessageService } from '../services/messages.js';
-import { requireBusinessAccess } from '../middleware/auth.js';
+import { createActivityEventService } from '../services/activityEvents.js';
+import { createBusinessPermissionMiddleware, getAuthorizedBusinessId, requireBusinessAccess } from '../middleware/auth.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -97,6 +98,26 @@ function sendDatabaseError(response, error) {
   });
 }
 
+function sendAuditError(response, error) {
+  console.error('Unable to record purchase activity event:', error?.message ?? error);
+
+  return response.status(500).json({
+    error: 'Purchase operation succeeded, but its audit event could not be recorded.',
+  });
+}
+
+function auditSnapshot(purchase, fields) {
+  return Object.fromEntries(
+    fields
+      .filter((field) => Object.prototype.hasOwnProperty.call(purchase, field))
+      .map((field) => [field, purchase[field]])
+  );
+}
+
+function changedFields(before, after, fields) {
+  return fields.filter((field) => before[field] !== after[field]);
+}
+
 export function createPurchasesRouter({
   purchaseService,
   businessService,
@@ -104,8 +125,14 @@ export function createPurchasesRouter({
   reviewAutomationService,
   messageTemplateService,
   messageService,
+  activityEventService,
+  businessAccessMiddleware,
+  permissionService,
 } = {}) {
   const router = Router();
+  const accessMiddleware = businessAccessMiddleware ?? requireBusinessAccess;
+  const requireViewPurchases = createBusinessPermissionMiddleware({ permissionService, permission: 'view_purchases', permissionError: 'You do not have permission to view purchases.', lookupError: 'Unable to verify purchase access.' });
+  const requireManagePurchases = createBusinessPermissionMiddleware({ permissionService, permission: 'manage_purchases', permissionError: 'You do not have permission to manage purchases.', lookupError: 'Unable to verify purchase access.' });
 
   let resolvedPurchaseService = purchaseService;
   let resolvedBusinessService = businessService;
@@ -113,6 +140,7 @@ export function createPurchasesRouter({
   let resolvedReviewAutomationService = reviewAutomationService;
   let resolvedMessageTemplateService = messageTemplateService;
   let resolvedMessageService = messageService;
+  let resolvedActivityEventService = activityEventService;
 
   function getPurchaseService() {
     if (!resolvedPurchaseService) {
@@ -160,6 +188,47 @@ export function createPurchasesRouter({
     }
 
     return resolvedMessageService;
+  }
+
+  function getActivityEventService() {
+    if (!resolvedActivityEventService) {
+      resolvedActivityEventService = createActivityEventService();
+    }
+
+    return resolvedActivityEventService;
+  }
+
+  async function recordPurchaseEvent(request, purchase, eventType, fields) {
+    try {
+      const result = await getActivityEventService().create({
+        scope_type: 'business',
+        business_id: purchase.business_id,
+        actor_user_id: request.user?.id ?? null,
+        actor_type: 'user',
+        event_type: eventType,
+        entity_type: 'purchase',
+        entity_id: purchase.id,
+        customer_id: purchase.customer_id,
+        is_reconstructed: false,
+        visibility: 'customer_timeline',
+        ...fields,
+      });
+
+      if (result?.error) {
+        return result;
+      }
+
+      if (!result?.data) {
+        return {
+          data: null,
+          error: new Error('Activity event persistence returned no record.'),
+        };
+      }
+
+      return result;
+    } catch (error) {
+      return { data: null, error };
+    }
   }
 
   async function validateBusinessAndCustomer(
@@ -314,7 +383,7 @@ export function createPurchasesRouter({
     }
   }
 
-  router.get('/', requireBusinessAccess, async (request, response) => {
+  router.get('/', accessMiddleware, requireViewPurchases, async (request, response) => {
     const {
       business_id: businessId,
       customer_id: customerId,
@@ -351,19 +420,18 @@ export function createPurchasesRouter({
     return response.status(200).json({ data });
   });
 
-  router.get('/:id', requireBusinessAccess, async (request, response) => {
+  router.get('/:id', accessMiddleware, requireViewPurchases, async (request, response) => {
     if (!isValidUuid(request.params.id)) {
       return response.status(400).json({
         error: 'purchase id must be a valid UUID.',
       });
     }
 
-    const { data, error } = await getPurchaseService().findById(
-  request.params.id,
-  request.profile?.role === 'client'
-    ? request.profile.business_id
-    : null
-);
+    const businessScope = request.profile?.role === 'admin' ? null : getAuthorizedBusinessId(request);
+    if (request.profile && request.profile.role !== 'admin' && !businessScope) {
+      return response.status(403).json({ error: 'An authorized business context is required.' });
+    }
+    const { data, error } = await getPurchaseService().findById(request.params.id, businessScope);
 
     if (error) return sendDatabaseError(response, error);
 
@@ -374,7 +442,7 @@ export function createPurchasesRouter({
     return response.status(200).json({ data });
   });
 
- router.post('/', requireBusinessAccess, async (request, response) => {
+ router.post('/', accessMiddleware, requireManagePurchases, async (request, response) => {
     const { errors, values } = validatePurchase(
       request.body ?? {},
       { creating: true }
@@ -400,12 +468,23 @@ export function createPurchasesRouter({
 
     if (error) return sendDatabaseError(response, error);
 
+    const auditResult = await recordPurchaseEvent(
+      request,
+      data,
+      'purchase.created',
+      { after: auditSnapshot(data, EDITABLE_FIELDS) },
+    );
+
+    if (auditResult.error) {
+      return sendAuditError(response, auditResult.error);
+    }
+
     await queueReviewRequest(data);
 
     return response.status(201).json({ data });
   });
 
- router.put('/:id', requireBusinessAccess, async (request, response) => {
+ router.put('/:id', accessMiddleware, requireManagePurchases, async (request, response) => {
     if (!isValidUuid(request.params.id)) {
       return response.status(400).json({
         error: 'purchase id must be a valid UUID.',
@@ -422,13 +501,31 @@ export function createPurchasesRouter({
       return response.status(400).json({ errors });
     }
 
+    const businessScope = request.profile?.role === 'admin' ? null : getAuthorizedBusinessId(request);
+    if (request.profile && request.profile.role !== 'admin' && !businessScope) {
+      return response.status(403).json({ error: 'An authorized business context is required.' });
+    }
+    const {
+      data: existingPurchase,
+      error: existingPurchaseError,
+    } = await getPurchaseService().findById(
+      request.params.id,
+      businessScope
+    );
+
+    if (existingPurchaseError) return sendDatabaseError(response, existingPurchaseError);
+
+    if (!existingPurchase) {
+      return response.status(404).json({ error: 'Purchase not found.' });
+    }
+
+    const before = auditSnapshot(existingPurchase, EDITABLE_FIELDS);
+
    const { data, error } = await getPurchaseService().update(
-  request.params.id,
-  values,
-  request.profile?.role === 'client'
-    ? request.profile.business_id
-    : null
-);
+      request.params.id,
+      values,
+      businessScope
+    );
 
     if (error) return sendDatabaseError(response, error);
 
@@ -436,27 +533,70 @@ export function createPurchasesRouter({
       return response.status(404).json({ error: 'Purchase not found.' });
     }
 
+    const after = auditSnapshot(data, EDITABLE_FIELDS);
+    const changed = changedFields(before, after, EDITABLE_FIELDS);
+
+    const auditResult = await recordPurchaseEvent(
+      request,
+      data,
+      'purchase.updated',
+      {
+        before: auditSnapshot(before, changed),
+        after: auditSnapshot(after, changed),
+      },
+    );
+
+    if (auditResult.error) {
+      return sendAuditError(response, auditResult.error);
+    }
+
     return response.status(200).json({ data });
   });
 
- router.delete('/:id', requireBusinessAccess, async (request, response) => {
+ router.delete('/:id', accessMiddleware, requireManagePurchases, async (request, response) => {
     if (!isValidUuid(request.params.id)) {
       return response.status(400).json({
         error: 'purchase id must be a valid UUID.',
       });
     }
 
-   const { data, error } = await getPurchaseService().remove(
-  request.params.id,
-  request.profile?.role === 'client'
-    ? request.profile.business_id
-    : null
-);
+   const businessScope = request.profile?.role === 'admin' ? null : getAuthorizedBusinessId(request);
+   if (request.profile && request.profile.role !== 'admin' && !businessScope) {
+     return response.status(403).json({ error: 'An authorized business context is required.' });
+   }
+    const {
+      data: existingPurchase,
+      error: existingPurchaseError,
+    } = await getPurchaseService().findById(request.params.id, businessScope);
+
+    if (existingPurchaseError) {
+      return sendDatabaseError(response, existingPurchaseError);
+    }
+
+    if (!existingPurchase) {
+      return response.status(404).json({ error: 'Purchase not found.' });
+    }
+
+    const { data: deletedPurchase, error } = await getPurchaseService().remove(
+      request.params.id,
+      businessScope
+    );
 
     if (error) return sendDatabaseError(response, error);
 
-    if (!data) {
+    if (!deletedPurchase) {
       return response.status(404).json({ error: 'Purchase not found.' });
+    }
+
+    const auditResult = await recordPurchaseEvent(
+      request,
+      existingPurchase,
+      'purchase.deleted',
+      { before: auditSnapshot(existingPurchase, EDITABLE_FIELDS) },
+    );
+
+    if (auditResult.error) {
+      return sendAuditError(response, auditResult.error);
     }
 
     return response.status(204).send();

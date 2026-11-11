@@ -2,9 +2,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import {
+  createBusinessAccessMiddleware,
   requireAdmin,
-  requireBusinessAccess,
 } from '../src/middleware/auth.js';
+
+const requireBusinessAccess = createBusinessAccessMiddleware({
+  permissionService: {
+    async getBusinessAuthorization(request, businessId) {
+      return {
+        data: {
+          authorized:
+            request.profile.role === 'client' &&
+            request.profile.business_id === businessId,
+        },
+        error: null,
+      };
+    },
+  },
+});
 
 test('requireAdmin allows an admin user', () => {
   let nextCalled = false;
@@ -61,11 +76,13 @@ test('requireAdmin rejects a client user', () => {
   });
 });
 
-test('requireBusinessAccess allows an admin user', () => {
+test('requireBusinessAccess allows an admin user', async () => {
   let nextCalled = false;
 
   const request = {
+    user: { id: 'admin-1' },
     profile: {
+      id: 'admin-1',
       role: 'admin',
       business_id: null,
     },
@@ -83,20 +100,22 @@ test('requireBusinessAccess allows an admin user', () => {
     },
   };
 
-  requireBusinessAccess(request, response, () => {
+  await requireBusinessAccess(request, response, () => {
     nextCalled = true;
   });
 
   assert.equal(nextCalled, true);
 });
 
-test('requireBusinessAccess rejects a client accessing another business', () => {
+test('requireBusinessAccess rejects a client accessing another business', async () => {
   let nextCalled = false;
   let statusCode = null;
   let responseBody = null;
 
   const request = {
+    user: { id: 'client-1' },
     profile: {
+      id: 'client-1',
       role: 'client',
       business_id: 'business-1',
     },
@@ -117,7 +136,7 @@ test('requireBusinessAccess rejects a client accessing another business', () => 
     },
   };
 
-  requireBusinessAccess(request, response, () => {
+  await requireBusinessAccess(request, response, () => {
     nextCalled = true;
   });
 
@@ -128,13 +147,15 @@ test('requireBusinessAccess rejects a client accessing another business', () => 
   });
 });
 
-test('requireBusinessAccess rejects a client without a business assignment', () => {
+test('requireBusinessAccess rejects a client without a business assignment', async () => {
   let nextCalled = false;
   let statusCode = null;
   let responseBody = null;
 
   const request = {
+    user: { id: 'client-1' },
     profile: {
+      id: 'client-1',
       role: 'client',
       business_id: null,
     },
@@ -153,7 +174,7 @@ test('requireBusinessAccess rejects a client without a business assignment', () 
     },
   };
 
-  requireBusinessAccess(request, response, () => {
+  await requireBusinessAccess(request, response, () => {
     nextCalled = true;
   });
 
@@ -164,13 +185,15 @@ test('requireBusinessAccess rejects a client without a business assignment', () 
   });
 });
 
-test('requireBusinessAccess rejects conflicting query and body business IDs', () => {
+test('requireBusinessAccess rejects conflicting query and body business IDs', async () => {
   let nextCalled = false;
   let statusCode = null;
   let responseBody = null;
 
   const request = {
+    user: { id: 'client-1' },
     profile: {
+      id: 'client-1',
       role: 'client',
       business_id: 'business-1',
     },
@@ -193,7 +216,7 @@ test('requireBusinessAccess rejects conflicting query and body business IDs', ()
     },
   };
 
-  requireBusinessAccess(request, response, () => {
+  await requireBusinessAccess(request, response, () => {
     nextCalled = true;
   });
 
@@ -204,11 +227,13 @@ test('requireBusinessAccess rejects conflicting query and body business IDs', ()
   });
 });
 
-test('requireBusinessAccess allows matching query and body business IDs', () => {
+test('requireBusinessAccess allows matching query and body business IDs', async () => {
   let nextCalled = false;
 
   const request = {
+    user: { id: 'client-1' },
     profile: {
+      id: 'client-1',
       role: 'client',
       business_id: 'business-1',
     },
@@ -226,7 +251,7 @@ test('requireBusinessAccess allows matching query and body business IDs', () => 
     },
   };
 
-  requireBusinessAccess(request, response, () => {
+  await requireBusinessAccess(request, response, () => {
     nextCalled = true;
   });
 
@@ -237,7 +262,12 @@ test('all business-owned create routes reject conflicting business IDs', async (
   const app = express();
   app.use(express.json());
   app.use((request, _response, next) => {
-    request.profile = { role: 'client', business_id: 'business-1' };
+    request.user = { id: 'client-1' };
+    request.profile = {
+      id: 'client-1',
+      role: 'client',
+      business_id: 'business-1',
+    };
     next();
   });
 

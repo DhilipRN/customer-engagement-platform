@@ -21,6 +21,41 @@ export function createMessageService(client = getSupabaseClient()) {
       return q;
     },
 
+    listByCustomerId(businessId, customerId, { limit, offset = 0 } = {}) {
+      let query = client
+        .from('messages')
+        .select('*')
+        .eq('business_id', businessId)
+        .eq('customer_id', customerId)
+        .order('created_at', { ascending: false });
+
+      if (Number.isInteger(limit) && limit > 0) {
+        query = query.range(offset, offset + limit - 1);
+      }
+
+      return query;
+    },
+
+    listAppointmentReminderStatuses(businessId) {
+      return client
+        .from('messages')
+        .select('id, appointment_id, status, scheduled_at, sent_at, created_at, source, template_id')
+        .eq('business_id', businessId)
+        .not('appointment_id', 'is', null)
+        .order('created_at', { ascending: false });
+    },
+
+    findByAppointmentId(appointmentId, businessId = null) {
+      let query = client
+        .from('messages')
+        .select('id, business_id, appointment_id, status')
+        .eq('appointment_id', appointmentId);
+
+      if (businessId) query = query.eq('business_id', businessId);
+
+      return query.maybeSingle();
+    },
+
     async listDueQueued(now) {
       return client
         .from('messages')
@@ -38,6 +73,22 @@ export function createMessageService(client = getSupabaseClient()) {
 
       return query.maybeSingle();
     },
+
+    findByProviderMessageId(providerMessageId) {
+      return client
+        .from('messages')
+        .select('*')
+        .eq('metadata->>providerMessageId', providerMessageId)
+        .maybeSingle();
+    },
+
+    findByIdempotencyKey: (businessId, idempotencyKey) =>
+      client
+        .from('messages')
+        .select('*')
+        .eq('business_id', businessId)
+        .eq('idempotency_key', idempotencyKey)
+        .maybeSingle(),
 
     create: (values) =>
       client.from('messages').insert(values).select('*').single(),

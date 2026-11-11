@@ -4,6 +4,7 @@ import { createApp } from './app.js';
 import { createScheduledMessageProcessor } from './services/scheduledMessageProcessor.js';
 import { createScheduledCampaignProcessor } from './services/scheduledCampaignProcessor.js';
 import { createScheduledAppointmentReminderProcessor } from './services/scheduledAppointmentReminderProcessor.js';
+import { createActivityEventService } from './services/activityEvents.js';
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseConfig } from './config/env.js';
 
@@ -14,16 +15,18 @@ const supabaseClient = createClient(
   url,
   serviceRoleKey
 );
+const activityEventService = createActivityEventService(supabaseClient);
 const app = createApp({
   supabaseClient,
+  activityEventService,
 });
 
-const messageProcessor = createScheduledMessageProcessor();
+const messageProcessor = createScheduledMessageProcessor({ activityEventService });
 const campaignProcessor =
-  createScheduledCampaignProcessor();
+  createScheduledCampaignProcessor(supabaseClient, activityEventService);
 
 const appointmentReminderProcessor =
-  createScheduledAppointmentReminderProcessor();
+  createScheduledAppointmentReminderProcessor(supabaseClient, activityEventService);
 
 const schedulerIntervalMs = 60 * 1000; // Check every 60 seconds
 
